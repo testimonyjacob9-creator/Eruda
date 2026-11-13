@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Erudite Easy Pay</title>
+<meta name="theme-color" content="#1d4ed8">
+<meta name="description" content="Erudite Easy Pay — buy airtime, data, electricity, cable TV and exam pins instantly.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon-192.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--blue:#1d4ed8;--blue2:#2f6bff;--navy:#0a2380;--bg:#f4f7ff;--card:#fff;--tx:#0b1b3f;--mut:#64748b;--line:#e3eaf8;--soft:#eaf1ff;--ok:#16a34a;--sh:0 10px 30px rgba(29,78,216,.12);
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#060f2b;--card:#0d1a42;--tx:#eaf0ff;--mut:#93a4c9;--line:#1b2b5e;--soft:#12234f;--sh:0 10px 30px rgba(0,0,0,.4)}}
+:root[data-theme="dark"]{--bg:#060f2b;--card:#0d1a42;--tx:#eaf0ff;--mut:#93a4c9;--line:#1b2b5e;--soft:#12234f;--sh:0 10px 30px rgba(0,0,0,.4)}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{min-height:100%;background:var(--bg);color:var(--tx);font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:flex;justify-content:center}
+button,input{font:inherit;color:inherit}
+.wrap{width:100%;max-width:440px;min-height:100vh;position:relative;background:var(--bg);overflow-x:hidden}
+svg{width:22px;height:22px;display:block}
+.hide{display:none!important}
+/* AUTH */
+.hero{background:linear-gradient(160deg,var(--navy),var(--blue) 55%,var(--blue2));color:#fff;padding:44px 24px 90px;position:relative;overflow:hidden}
+.hero:before,.hero:after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.08)}
+.hero:before{width:260px;height:260px;right:-90px;top:-70px}.hero:after{width:180px;height:180px;left:-60px;bottom:-60px}
+.logo{display:flex;align-items:center;gap:12px;position:relative}
+.mark{width:46px;height:46px;border-radius:14px;background:#fff;display:grid;place-items:center;color:var(--blue);box-shadow:0 8px 20px rgba(0,0,0,.2)}
+.logo b{font-size:17px;letter-spacing:.14em;font-weight:800;line-height:1.1}.logo small{display:block;font-size:11px;letter-spacing:.3em;opacity:.8;font-weight:600}
+.hero h1{font-size:28px;line-height:1.2;margin-top:34px;font-weight:800;position:relative}.hero p{opacity:.85;margin-top:8px;font-size:14px;position:relative}
+.sheet{background:var(--card);margin:-56px 16px 0;border-radius:24px;padding:22px;box-shadow:var(--sh);position:relative}
+.tabs{display:flex;background:var(--soft);padding:4px;border-radius:14px;margin-bottom:18px}
+.tabs button{flex:1;border:0;background:none;padding:10px;border-radius:11px;font-weight:700;color:var(--mut);cursor:pointer}
+.tabs button.on{background:var(--card);color:var(--blue);box-shadow:0 2px 8px rgba(29,78,216,.15)}
+.fld{margin-bottom:14px}.fld label{display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:6px}
+.inp{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:14px;padding:0 14px;background:var(--bg);transition:.2s}
+.inp:focus-within{border-color:var(--blue);box-shadow:0 0 0 4px rgba(47,107,255,.15)}
+.inp svg{width:19px;height:19px;color:var(--mut);flex:none}
+.inp input{flex:1;min-width:0;border:0;outline:0;background:none;padding:14px 0;font-size:15px}
+.inp button{border:0;background:none;color:var(--blue);font-weight:700;font-size:12px;cursor:pointer}
+.btn{width:100%;border:0;border-radius:14px;padding:15px;font-weight:800;font-size:15px;color:#fff;background:linear-gradient(135deg,var(--blue),var(--blue2));box-shadow:0 10px 22px rgba(29,78,216,.35);cursor:pointer;transition:.15s}
+.btn:active{transform:scale(.98)}
+.row{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin:2px 0 16px}.row a{color:var(--blue);font-weight:700;text-decoration:none}
+.trust{display:flex;justify-content:center;gap:14px;flex-wrap:wrap;margin:22px 16px;font-size:12px;color:var(--mut);font-weight:600}
+.trust span{display:flex;align-items:center;gap:6px}.trust svg{width:15px;height:15px;color:var(--blue)}
+.err{color:#dc2626;font-size:12px;font-weight:600;min-height:16px;margin-bottom:8px}
+/* APP */
+.top{display:flex;justify-content:space-between;align-items:center;padding:18px 18px 8px}
+.who{display:flex;align-items:center;gap:12px}.av{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:grid;place-items:center;font-weight:800}
+.who small{color:var(--mut);font-size:12px;display:block}.who b{font-size:16px}
+.ib{width:42px;height:42px;border-radius:13px;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;color:var(--tx)}
+.wal{margin:10px 16px;border-radius:24px;padding:22px;color:#fff;background:linear-gradient(135deg,var(--navy),var(--blue) 60%,var(--blue2));box-shadow:0 18px 36px rgba(29,78,216,.35);position:relative;overflow:hidden}
+.wal:after{content:"";position:absolute;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,.09);right:-60px;top:-80px}
+.wal small{opacity:.8;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
+.wal h2{font-size:34px;font-weight:800;margin:8px 0 18px;letter-spacing:-.5px}
+.wal .bt{display:flex;gap:10px;position:relative;z-index:1}
+.wal .bt button{flex:1;border:0;border-radius:12px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;background:rgba(255,255,255,.18);color:#fff}
+.wal .bt button.w{background:#fff;color:var(--blue)}
+.sec{display:flex;justify-content:space-between;align-items:center;padding:18px 18px 10px}.sec b{font-size:16px}.sec span{color:var(--blue);font-size:13px;font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:0 16px}
+.svc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 8px;text-align:center;cursor:pointer;font-size:12.5px;font-weight:700;transition:.15s}
+.svc:active{transform:scale(.96)}.svc i{width:46px;height:46px;border-radius:14px;background:var(--soft);color:var(--blue);display:grid;place-items:center;margin:0 auto 9px}
+.promo{margin:16px;border-radius:20px;padding:18px;background:var(--soft);border:1px dashed var(--blue2);display:flex;gap:12px;align-items:center}
+.promo b{font-size:14px;display:block}.promo span{font-size:12px;color:var(--mut)}
+.tx{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;margin:0 16px 10px}
+.tx i{width:42px;height:42px;border-radius:13px;background:var(--soft);color:var(--blue);display:grid;place-items:center;flex:none}
+.tx div{flex:1;min-width:0}.tx b{font-size:14px;display:block}.tx small{color:var(--mut);font-size:12px}.tx em{font-style:normal;font-weight:800;font-size:14px}
+.pill{font-size:10px;font-weight:800;color:var(--ok);background:rgba(22,163,74,.12);padding:2px 8px;border-radius:99px;margin-left:6px}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:440px;background:var(--card);border-top:1px solid var(--line);display:flex;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));z-index:5}
+.nav button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:700;color:var(--mut);cursor:pointer;padding:6px}
+.nav button.on{color:var(--blue)}.nav svg{width:22px;height:22px}
+.pad{height:96px}
+.pf{margin:16px;background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.pf button{width:100%;display:flex;justify-content:space-between;align-items:center;padding:16px;border:0;border-bottom:1px solid var(--line);background:none;font-weight:600;font-size:14px;cursor:pointer;text-align:left}
+.pf button:last-child{border:0;color:#dc2626}
+/* SHEET */
+.ov{position:fixed;inset:0;background:rgba(6,15,43,.55);z-index:10;display:flex;align-items:flex-end;justify-content:center;animation:f .2s}
+.pop{width:100%;max-width:440px;max-height:88vh;overflow:auto;background:var(--card);border-radius:26px 26px 0 0;padding:10px 20px calc(24px + env(safe-area-inset-bottom,0px));animation:u .3s cubic-bezier(.2,.8,.2,1)}
+.grab{width:44px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 14px}
+.pop h3{font-size:19px;margin-bottom:16px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1.5px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.chip.on{border-color:var(--blue);background:var(--soft);color:var(--blue)}
+.chip small{display:block;font-weight:600;color:var(--mut);font-size:11px}
+.ok{text-align:center;padding:10px 0}
+.ok .c{width:84px;height:84px;border-radius:50%;background:rgba(22,163,74,.12);color:var(--ok);display:grid;place-items:center;margin:0 auto 14px;animation:p .5s}
+.ok .c svg{width:44px;height:44px}
+.rc{background:var(--bg);border-radius:16px;padding:14px;margin:16px 0;text-align:left;font-size:13px}
+.rc p{display:flex;justify-content:space-between;padding:5px 0}.rc p span{color:var(--mut)}
+.acct{background:linear-gradient(135deg,var(--navy),var(--blue));color:#fff;border-radius:18px;padding:18px;margin-bottom:14px}
+.acct h4{font-size:26px;letter-spacing:.08em;margin:6px 0}.acct small{opacity:.8}
+.toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:11px 18px;border-radius:99px;font-size:13px;font-weight:700;z-index:20;animation:f .2s}
+@keyframes f{from{opacity:0}}@keyframes u{from{transform:translateY(60px);opacity:0}}@keyframes p{0%{transform:scale(.4)}70%{transform:scale(1.1)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- AUTH -->
+<section id="auth">
+  <div class="hero">
+    <div class="logo"><div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h13M5 12h9M5 19h13M5 5v14"/></svg></div><div><b>ERUDITE</b><small>EASY PAY</small></div></div>
+    <h1 id="ht">Welcome back</h1>
+    <p id="hs">Airtime, data, bills and more — instant and secure.</p>
+  </div>
+  <div class="sheet">
+    <div class="tabs"><button id="tl" class="on">Log in</button><button id="ts">Sign up</button></div>
+    <div class="fld hide" id="nm"><label>Full name</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><input id="name" placeholder="Your full name" autocomplete="name"></div></div>
+    <div class="fld"><label>Phone number or email</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg><input id="id" placeholder="0801 234 5678" autocomplete="username"></div></div>
+    <div class="fld"><label>Password</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><input id="pw" type="password" placeholder="Enter password" autocomplete="current-password"><button id="eye" type="button">SHOW</button></div></div>
+    <div class="row" id="fp"><label style="display:flex;gap:8px;align-items:center;color:var(--mut)"><input type="checkbox" checked> Remember me</label><a href="#auth">Forgot password?</a></div>
+    <div class="err" id="err"></div>
+    <button class="btn" id="go">Log in</button>
+  </div>
+  <div class="trust"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>Bank-grade security</span><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 3 5 14h6l-1 7 8-11h-6z"/></svg>Instant delivery</span><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>24/7 support</span></div>
+</section>
+
+<!-- APP -->
+<section id="app" class="hide">
+  <div id="v"></div>
+  <nav class="nav" id="nav"></nav>
+</section>
+</div>
+
+<script>
+const ic=(n,s)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${s?` style="width:${s}px;height:${s}px"`:''}>${{
+airtime:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+data:'<path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/>',
+power:'<path d="M13 3 5 14h6l-1 7 8-11h-6z"/>',
+tv:'<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/>',
+exam:'<path d="M4 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H4zM20 5h-6v13h6z"/>',
+fund:'<rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 15h2"/>',
+home:'<path d="M3 11 12 4l9 7v9H3z"/>',hist:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+chk:'<path d="m5 12 5 5 9-10"/>',bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
+moon:'<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',gift:'<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 13h18M12 8c-3 0-5-4-2-4s2 4 2 4zm0 0c3 0 5-4 2-4s-2 4-2 4z"/>',
+cp:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'}[n]}</svg>`;
+const $=s=>document.querySelector(s),N=n=>'₦'+n.toLocaleString('en-NG');
+let mode='login',user={name:'Testimony'},bal=25400,tab='home',tx=[
+{t:'MTN Airtime',s:'0803 *** 4421',a:-500,d:'Today, 9:41 AM',i:'airtime'},
+{t:'Wallet funding',s:'Bank transfer',a:5000,d:'Yesterday',i:'fund'},
+{t:'Airtel 2GB Data',s:'0902 *** 1180',a:-600,d:'Mon, 6:12 PM',i:'data'}];
+const NET=['MTN','Airtel','Glo','9mobile'];
+const SV={
+airtime:{t:'Buy Airtime',f:[['net','Network',NET],['ph','Phone number','0801 234 5678'],['amt','Amount (₦)','Enter amount',[100,200,500,1000]]]},
+data:{t:'Buy Data',f:[['net','Network',NET],['ph','Phone number','0801 234 5678'],['plan','Data plan',[['500MB · 7 days',150],['1GB · 30 days',280],['2GB · 30 days',560],['5GB · 30 days',1350],['10GB · 30 days',2600]]]]},
+power:{t:'Electricity Bill',f:[['net','Provider',['IKEDC','EKEDC','AEDC','PHED','BEDC']],['ph','Meter number','Prepaid meter number'],['amt','Amount (₦)','Minimum ₦1,000',[1000,2000,5000]]]},
+tv:{t:'Cable TV',f:[['net','Provider',['DSTV','GOtv','Startimes']],['ph','Smartcard number','Decoder number'],['plan','Package',[['Basic',2100],['Compact',9000],['Premium',29500]]]]},
+exam:{t:'Exam Pins',f:[['net','Exam',['WAEC','NECO','JAMB']],['plan','Pin type',[['Result checker',3500],['Registration pin',4700]]]]}
+};
+/* auth */
+const setMode=m=>{mode=m;const s=m=='signup';$('#tl').classList.toggle('on',!s);$('#ts').classList.toggle('on',s);
+$('#nm').classList.toggle('hide',!s);$('#fp').classList.toggle('hide',s);$('#go').textContent=s?'Create account':'Log in';
+$('#ht').textContent=s?'Create your account':'Welcome back';$('#hs').textContent=s?'Join thousands paying smarter every day.':'Airtime, data, bills and more — instant and secure.';$('#err').textContent=''};
+$('#tl').onclick=()=>setMode('login');$('#ts').onclick=()=>setMode('signup');
+$('#eye').onclick=()=>{const p=$('#pw'),h=p.type=='password';p.type=h?'text':'password';$('#eye').textContent=h?'HIDE':'SHOW'};
+$('#go').onclick=()=>{const id=$('#id').value.trim(),pw=$('#pw').value;
+if(mode=='signup'&&!$('#name').value.trim())return $('#err').textContent='Please enter your full name.';
+if(id.length<5)return $('#err').textContent='Enter a valid phone number or email.';
+if(pw.length<6)return $('#err').textContent='Password must be at least 6 characters.';
+if(mode=='signup')user.name=$('#name').value.trim().split(' ')[0];
+$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render()},700)};
+/* render */
+const txH=a=>a.map(x=>`<div class="tx"><i>${ic(x.i)}</i><div><b>${x.t}</b><small>${x.s} · ${x.d}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
+function render(){
+const v=$('#v');
+if(tab=='home')v.innerHTML=`<div class="top"><div class="who"><div class="av">${user.name[0].toUpperCase()}</div><div><small>Good day 👋</small><b>${user.name}</b></div></div><div style="display:flex;gap:8px"><button class="ib" id="th">${ic('moon',20)}</button><button class="ib">${ic('bell',20)}</button></div></div>
+<div class="wal"><small>Wallet balance</small><h2>${N(bal)}</h2><div class="bt"><button class="w" data-s="fund">+ Fund wallet</button><button data-s="airtime">Quick airtime</button></div></div>
+<div class="sec"><b>Services</b></div>
+<div class="grid">${[['airtime','Airtime'],['data','Data'],['power','Electricity'],['tv','Cable TV'],['exam','Exam Pins'],['fund','Fund Wallet']].map(a=>`<div class="svc" data-s="${a[0]}"><i>${ic(a[0])}</i>${a[1]}</div>`).join('')}</div>
+<div class="promo">${ic('gift',30)}<div><b>Earn 2% cashback</b><span>On every data purchase this week.</span></div></div>
+<div class="sec"><b>Recent activity</b><span data-t="hist">See all</span></div>${txH(tx.slice(0,3))}<div class="pad"></div>`;
+else if(tab=='hist')v.innerHTML=`<div class="top"><b style="font-size:22px">Transactions</b></div><div style="height:10px"></div>${txH(tx)}<div class="pad"></div>`;
+else v.innerHTML=`<div class="top"><b style="font-size:22px">Profile</b></div><div class="wal" style="text-align:center"><div class="av" style="margin:0 auto 10px;background:#fff;color:var(--blue)">${user.name[0].toUpperCase()}</div><b style="font-size:18px">${user.name}</b><small style="display:block;margin-top:4px;opacity:.8">Verified member</small></div>
+<div class="pf"><button>Security & PIN <span>›</span></button><button>Referral · Earn ₦500 <span>›</span></button><button>Help & support <span>›</span></button><button id="lo">Log out</button></div><div class="pad"></div>`;
+$('#nav').innerHTML=[['home','Home'],['hist','History'],['user','Profile']].map(a=>`<button class="${tab==a[0]?'on':''}" data-t="${a[0]}">${ic(a[0])}${a[0]=='home'?'Home':a[0]=='hist'?'History':'Profile'}</button>`).join('');
+}
+document.addEventListener('click',e=>{
+const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
+const s=e.target.closest('[data-s]');if(s){openS(s.dataset.s);return}
+if(e.target.closest('#th')){const r=document.documentElement;r.dataset.theme=(r.dataset.theme=='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'}
+if(e.target.closest('#lo')){$('#app').classList.add('hide');$('#auth').classList.remove('hide');$('#go').textContent=mode=='signup'?'Create account':'Log in';$('#pw').value='';tab='home'}
+});
+/* sheets */
+function pop(h){let o=$('.ov');if(!o){o=document.createElement('div');o.className='ov';o.onclick=e=>{if(e.target==o)o.remove()};document.body.appendChild(o)}o.innerHTML=`<div class="pop"><div class="grab"></div>${h}</div>`;return o}
+const toast=m=>{const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),1800)};
+function openS(k){
+if(k=='fund'){const o=pop(`<h3>Fund wallet</h3><div class="acct"><small>Erudite Easy Pay · Virtual account</small><h4>9012 345 678</h4><small>Account name: ${user.name} / EEP</small></div><p style="font-size:13px;color:var(--mut);margin-bottom:16px">Transfer any amount to this account. Your wallet is credited instantly, 24/7.</p><button class="btn" id="cp">Copy account number</button>`);
+o.querySelector('#cp').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText('9012345678').catch(()=>{});toast('Account number copied')};return}
+const c=SV[k],sel={};
+const o=pop(`<h3>${c.t}</h3>${c.f.map(f=>{
+if(Array.isArray(f[2]))return `<div class="fld"><label>${f[1]}</label><div class="chips" data-k="${f[0]}">${f[2].map((x,i)=>Array.isArray(x)?`<button class="chip" data-i="${i}">${x[0]}<small>${N(x[1])}</small></button>`:`<button class="chip" data-i="${i}">${x}</button>`).join('')}</div></div>`;
+return `<div class="fld"><label>${f[1]}</label><div class="inp"><input data-k="${f[0]}" inputmode="numeric" placeholder="${f[2]}"></div>${f[3]?`<div class="chips" style="margin-top:8px">${f[3].map(x=>`<button class="chip" data-q="${x}">${N(x)}</button>`).join('')}</div>`:''}</div>`}).join('')}<div class="err" id="e2"></div><button class="btn" id="pay">Continue</button>`);
+o.querySelectorAll('.chips[data-k] .chip').forEach(b=>b.onclick=()=>{b.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');sel[b.parentNode.dataset.k]=+b.dataset.i});
+o.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>o.querySelector('[data-k=amt]').value=b.dataset.q);
+o.querySelector('#pay').onclick=()=>{
+const g=n=>c.f.find(f=>f[0]==n),E=m=>o.querySelector('#e2').textContent=m;
+const nf=g('net'),pf=g('plan'),ph=o.querySelector('[data-k=ph]'),am=o.querySelector('[data-k=amt]');
+if(sel.net==null)return E('Please select an option above.');
+if(ph&&ph.value.replace(/\D/g,'').length<10)return E('Enter a valid number.');
+let a,pl='';if(pf){if(sel.plan==null)return E('Please choose a package.');a=pf[2][sel.plan][1];pl=pf[2][sel.plan][0]}else{a=+am.value;if(!a||a<100)return E('Enter a valid amount.')}
+if(a>bal)return E('Insufficient balance. Please fund your wallet.');
+const net=nf[2][sel.net],who=ph?ph.value:'—';
+o.querySelector('.pop').innerHTML=`<div class="grab"></div><div style="text-align:center;padding:30px 0"><div class="chip on" style="display:inline-block">Processing…</div></div>`;
+setTimeout(()=>{bal-=a;tx.unshift({t:`${net} ${pl||c.t.replace('Buy ','')}`,s:who,a:-a,d:'Just now',i:k});render();
+o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><div class="c">${ic('chk')}</div><h3 style="margin:0">Payment successful</h3><p style="color:var(--mut);font-size:13px;margin-top:6px">Your transaction was completed instantly.</p>
+<div class="rc"><p><span>Service</span><b>${net} ${pl||c.t.replace('Buy ','')}</b></p><p><span>Recipient</span><b>${who}</b></p><p><span>Amount</span><b>${N(a)}</b></p><p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dn">Done</button></div>`;
+o.querySelector('#dn').onclick=()=>o.remove()},1100)}}
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
