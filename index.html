@@ -144,15 +144,23 @@ moon:'<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',gift:'<rect x="3" y="8
 cp:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'}[n]}</svg>`;
 const mail=(type,data)=>{if(!user.email)return;try{fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,to:user.email,data})}).catch(()=>{})}catch(e){}};
 const VAPID_PUBLIC='BByPun49jVlrCt9DzD8AgpciOwwey-BS9ZgHFoyweUGpWvsLv6AP-gHeMu_EWnlJ0rHmxvH_fIiE5JcmnQE06lM';
-const H={'Content-Type':'application/json'};let inbox=[];
+const H={'Content-Type':'application/json'};let inbox=[],PRICING=null;
 const api=(p,o)=>fetch('/api/'+p,o).then(r=>r.json()).catch(()=>null);
 const seen=()=>{try{return +localStorage.getItem('eep_seen')||0}catch(e){return 0}};
 const unread=()=>inbox.filter(x=>x.ts>seen()).length;
 async function loadInbox(){const r=await api('inbox');if(r&&r.items){const n=r.items.length;inbox=r.items;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
-async function loadWallet(){const r=await api('wallet?uid='+encodeURIComponent(user.id));if(r&&typeof r.balance=='number'){bal=r.balance;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
+let wsig='';
+async function loadWallet(){const r=await api('history?uid='+encodeURIComponent(user.id));if(r&&typeof r.balance=='number'){const sg=r.balance+':'+(r.items||[]).length;if(sg===wsig)return;wsig=sg;bal=r.balance;tx=(r.items||[]).map(x=>({t:x.title,s:x.sub||'',a:x.amount,ts:x.ts,i:x.type=='purchase'&&x.svc?x.svc:'fund',ref:x.ref||''}));if(!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
+async function loadPricing(){const P=await api('pricing');if(!P||!P.plans)return;PRICING=P;const m=a=>a.map(x=>[x.label,x.price]);SV.data.f[2][2]=m(P.plans.data);SV.tv.f[2][2]=m(P.plans.tv);SV.exam.f[1][2]=m(P.plans.exam)}
+function showReceipt(t){if(!t)return;const o=pop(`<div class="ok"><h3 style="margin:0 0 4px">${X(t.t)}</h3><p style="color:var(--mut);font-size:13px">${fd(t.ts)}</p><div class="rc"><p><span>${t.a>0?'Credited':'Amount'}</span><b>${N(Math.abs(t.a))}</b></p><p><span>Details</span><b>${X(t.s)||'—'}</b></p>${t.ref?`<p><span>Reference</span><b>${X(t.ref)}</b></p>`:''}<p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dl">Download receipt</button></div>`);
+o.querySelector('#dl').onclick=()=>{const c=document.createElement('canvas');c.width=600;c.height=720;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,600,720);const gr=g.createLinearGradient(0,0,600,0);gr.addColorStop(0,'#0a2380');gr.addColorStop(1,'#2f6bff');g.fillStyle=gr;g.fillRect(0,0,600,120);g.fillStyle='#fff';g.font='bold 28px sans-serif';g.fillText('ERUDITE EASY PAY',40,72);
+g.fillStyle='#0b1b3f';g.font='bold 34px sans-serif';g.fillText(t.a>0?'Payment received':'Payment receipt',40,190);
+[['Service',t.t],['Details',t.s||'-'],['Amount',N(Math.abs(t.a))],['Date',fd(t.ts)],['Reference',t.ref||'-'],['Status','Successful']].forEach((r,i)=>{const y=260+i*62;g.fillStyle='#64748b';g.font='20px sans-serif';g.textAlign='left';g.fillText(r[0],40,y);g.fillStyle='#0b1b3f';g.font='bold 22px sans-serif';g.textAlign='right';g.fillText(String(r[1]).slice(0,34),560,y)});
+g.textAlign='left';g.fillStyle='#64748b';g.font='18px sans-serif';g.fillText('Thank you for using Erudite Easy Pay',40,680);
+c.toBlob(bl=>{const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='receipt-'+(t.ref||Date.now())+'.png';a.click()})}}
 (()=>{const q=new URLSearchParams(location.search),ref=q.get('reference')||q.get('trxref');if(!ref)return;history.replaceState(null,'','/');
 api('paystack/verify?reference='+encodeURIComponent(ref)).then(r=>{toast(r&&r.ok?`Payment received: ${N(r.amount)}${user.id?'':'. Log in to see your balance'}`:'We could not confirm the payment yet');if(user.id)loadWallet()})})();
-setInterval(()=>{if(user.id)loadInbox()},60000);
+setInterval(()=>{if(user.id){loadInbox();loadWallet()}},60000);
 const u8=k=>{const b=atob((k+'='.repeat((4-k.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
 async function enablePush(){try{if(!('serviceWorker' in navigator)||!('PushManager' in window))return toast('Push is not supported on this browser');
 if(await Notification.requestPermission()!=='granted')return toast('Notifications are blocked');
@@ -184,9 +192,10 @@ if(id.length<5)return $('#err').textContent='Enter a valid phone number or email
 if(pw.length<6)return $('#err').textContent='Password must be at least 6 characters.';
 if(mode=='signup'){const em=$('#em').value.trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))return $('#err').textContent='Enter a valid email address.';user.name=$('#name').value.trim().split(' ')[0];user.email=em}
 else if(id.includes('@'))user.email=id;
-$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();user.id=(user.email||id).toLowerCase();if(mode=='signup')mail('welcome',{name:user.name});api('register',{method:'POST',headers:H,body:JSON.stringify({id:user.id,name:user.name,email:user.email||''})});loadInbox();loadWallet()},700)};
+$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();user.id=(user.email||id).toLowerCase();if(mode=='signup')mail('welcome',{name:user.name});api('register',{method:'POST',headers:H,body:JSON.stringify({id:user.id,name:user.name,email:user.email||''})});loadInbox();loadWallet();loadPricing()},700)};
 /* render */
-const txH=a=>!a.length?'<p style="margin:0 16px;color:var(--mut);font-size:13px">No transactions yet</p>':a.map(x=>`<div class="tx"><i>${ic(x.i)}</i><div><b>${x.t}</b><small>${x.s} · ${x.d}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
+const fd=t=>new Date(t).toLocaleString('en-NG',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),X=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const txH=a=>!a.length?'<p style="margin:0 16px;color:var(--mut);font-size:13px">No transactions yet</p>':a.map((x,i)=>`<div class="tx" data-r="${i}" style="cursor:pointer"><i>${ic(x.i)}</i><div><b>${X(x.t)}</b><small>${X(x.s)} · ${fd(x.ts)}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
 function render(){
 const v=$('#v');
 if(tab=='home')v.innerHTML=`<div class="top"><div class="who"><div class="av">${user.name[0].toUpperCase()}</div><div><small>Good day 👋</small><b>${user.name}</b></div></div><div style="display:flex;gap:8px"><button class="ib" id="th">${ic('moon',20)}</button><button class="ib" id="bl" style="position:relative">${ic('bell',20)}${unread()?`<b style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center">${unread()}</b>`:''}</button></div></div>
@@ -204,6 +213,7 @@ document.addEventListener('click',e=>{
 const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
 const s=e.target.closest('[data-s]');if(s){openS(s.dataset.s);return}
 if(e.target.closest('#bl')){showInbox();return}
+const rr=e.target.closest('.tx[data-r]');if(rr){showReceipt(tx[+rr.dataset.r]);return}
 if(e.target.closest('#th')){const r=document.documentElement;r.dataset.theme=(r.dataset.theme=='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'}
 if(e.target.closest('#lo')){$('#app').classList.add('hide');$('#auth').classList.remove('hide');$('#go').textContent=mode=='signup'?'Create account':'Log in';$('#pw').value='';tab='home'}
 });
@@ -211,6 +221,7 @@ if(e.target.closest('#lo')){$('#app').classList.add('hide');$('#auth').classList
 function pop(h){let o=$('.ov');if(!o){o=document.createElement('div');o.className='ov';o.onclick=e=>{if(e.target==o)o.remove()};document.body.appendChild(o)}o.innerHTML=`<div class="pop"><div class="grab"></div>${h}</div>`;return o}
 const toast=m=>{const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),1800)};
 function openS(k){
+if(PRICING&&PRICING.off&&PRICING.off[k])return toast('This service is temporarily unavailable');
 if(k=='fund'){const o=pop(`<h3>Fund wallet</h3><div class="fld"><label>Amount (₦)</label><div class="inp"><input id="fa" inputmode="numeric" placeholder="Minimum ₦100"></div><div class="chips" style="margin-top:8px">${[500,1000,2000,5000].map(x=>`<button class="chip" data-q="${x}">${N(x)}</button>`).join('')}</div></div><div class="err" id="e2"></div><button class="btn" id="pp">Pay with Paystack</button><p style="font-size:12px;color:var(--mut);margin-top:12px;text-align:center">Secured by Paystack · Card, bank transfer, USSD</p>`);
 o.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>o.querySelector('#fa').value=b.dataset.q);
 o.querySelector('#pp').onclick=async()=>{const a=+o.querySelector('#fa').value,E=m=>o.querySelector('#e2').textContent=m;if(!(a>=100))return E('Enter at least ₦100.');
@@ -218,7 +229,7 @@ o.querySelector('#pp').disabled=true;o.querySelector('#pp').textContent='Please 
 const r=await api('paystack/init',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,email:user.email||'',amount:a})});
 if(r&&r.url){location.href=r.url}else{E(r&&r.error||'Could not start payment. Try again.');o.querySelector('#pp').disabled=false;o.querySelector('#pp').textContent='Pay with Paystack'}};return}
 const c=SV[k],sel={};
-const o=pop(`<h3>${c.t}</h3>${c.f.map(f=>{
+const o=pop(`<h3>${c.t}</h3>${k=='airtime'&&PRICING&&PRICING.airtimeDiscount?`<div class="promo" style="margin:0 0 14px;padding:10px 14px;font-size:12px"><b>Pay ${PRICING.airtimeDiscount}% less on every airtime top-up</b></div>`:''}${c.f.map(f=>{
 if(Array.isArray(f[2]))return `<div class="fld"><label>${f[1]}</label><div class="chips" data-k="${f[0]}">${f[2].map((x,i)=>Array.isArray(x)?`<button class="chip" data-i="${i}">${x[0]}<small>${N(x[1])}</small></button>`:`<button class="chip" data-i="${i}">${x}</button>`).join('')}</div></div>`;
 return `<div class="fld"><label>${f[1]}</label><div class="inp"><input data-k="${f[0]}" inputmode="numeric" placeholder="${f[2]}"></div>${f[3]?`<div class="chips" style="margin-top:8px">${f[3].map(x=>`<button class="chip" data-q="${x}">${N(x)}</button>`).join('')}</div>`:''}</div>`}).join('')}<div class="err" id="e2"></div><button class="btn" id="pay">Continue</button>`);
 o.querySelectorAll('.chips[data-k] .chip').forEach(b=>b.onclick=()=>{b.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');sel[b.parentNode.dataset.k]=+b.dataset.i});
@@ -233,11 +244,11 @@ if(a>bal)return E('Insufficient balance. Please fund your wallet.');
 const net=nf[2][sel.net],who=ph?ph.value:'—';
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div style="text-align:center;padding:30px 0"><div class="chip on" style="display:inline-block">Processing…</div></div>`;
 setTimeout(async()=>{const rf='EEP'+Date.now().toString(36).toUpperCase(),sv=`${net} ${pl||c.t.replace('Buy ','')}`;
-const r=await api('track',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,service:sv,recipient:who,amount:a,ref:rf})});
+const r=await api('track',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,svc:k,label:pl,title:sv,amount:a,recipient:who,ref:rf})});
 if(!r||!r.ok){if(r&&typeof r.balance=='number')bal=r.balance;o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><h3>Payment failed</h3><p style="color:var(--mut);font-size:13px;margin:8px 0 16px">${r&&r.error?r.error:'Please try again.'}</p><button class="btn" id="dn">Close</button></div>`;o.querySelector('#dn').onclick=()=>{o.remove();render()};return}
-bal=r.balance;tx.unshift({t:sv,s:who,a:-a,d:'Just now',i:k});render();mail('receipt',{service:sv,recipient:who,amount:a,ref:rf});
+bal=r.balance;tx.unshift({t:sv,s:who,a:-r.charge,ts:Date.now(),i:k,ref:rf});render();mail('receipt',{service:sv,recipient:who,amount:r.charge,ref:rf});
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><div class="c">${ic('chk')}</div><h3 style="margin:0">Payment successful</h3><p style="color:var(--mut);font-size:13px;margin-top:6px">Your transaction was completed instantly.</p>
-<div class="rc"><p><span>Service</span><b>${net} ${pl||c.t.replace('Buy ','')}</b></p><p><span>Recipient</span><b>${who}</b></p><p><span>Amount</span><b>${N(a)}</b></p><p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dn">Done</button></div>`;
+<div class="rc"><p><span>Service</span><b>${net} ${pl||c.t.replace('Buy ','')}</b></p><p><span>Recipient</span><b>${who}</b></p><p><span>Amount paid</span><b>${N(r.charge)}</b></p><p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dn">Done</button></div>`;
 o.querySelector('#dn').onclick=()=>o.remove()},1100)}}
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 </script>

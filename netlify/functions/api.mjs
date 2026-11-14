@@ -59,7 +59,13 @@ async function sendPush(subs, title, message) {
 const PS = 'https://api.paystack.co';
 const ps = (path, o = {}) => fetch(PS + path, { ...o, headers: { Authorization: 'Bearer ' + E.PAYSTACK_SECRET_KEY, 'Content-Type': 'application/json' } }).then(r => r.json());
 // wallet = sum of ledger entries (one key per entry, so crediting twice is harmless)
-const balanceOf = async uid => { const s = getStore('ledger'); const { blobs } = await s.list({ prefix: hash(uid) + '/' }); const v = await Promise.all(blobs.map(x => s.get(x.key, { type: 'json' }))); return v.reduce((t, x) => t + (x?.amount || 0), 0); };
+const DEFAULT_PRICING = { airtimeDiscount: 2, off: {}, plans: {
+  data: [['500MB · 7 days', 150], ['1GB · 30 days', 280], ['2GB · 30 days', 560], ['5GB · 30 days', 1350], ['10GB · 30 days', 2600]].map(([label, price]) => ({ label, price })),
+  tv: [['Basic', 2100], ['Compact', 9000], ['Premium', 29500]].map(([label, price]) => ({ label, price })),
+  exam: [['Result checker', 3500], ['Registration pin', 4700]].map(([label, price]) => ({ label, price })) } };
+const getPricing = async () => ({ ...DEFAULT_PRICING, ...((await getStore('config').get('pricing', { type: 'json' })) || {}) });
+const history = async uid => { const s = getStore('ledger'); const { blobs } = await s.list({ prefix: hash(uid) + '/' }); const v = (await Promise.all(blobs.map(x => s.get(x.key, { type: 'json' })))).filter(Boolean).sort((a, c) => c.ts - a.ts); return { balance: v.reduce((t, x) => t + (x.amount || 0), 0), items: v.slice(0, 100) }; };
+const balanceOf = async uid => (await history(uid)).balance;
 async function credit(ref) {
   const rec = await getStore('pay').get(hash(ref), { type: 'json' });
   if (!rec) return { ok: false, error: 'Unknown reference' };
@@ -67,7 +73,7 @@ async function credit(ref) {
   const d = (await ps('/transaction/verify/' + encodeURIComponent(ref)))?.data;
   if (d?.status !== 'success') return { ok: false, status: d?.status || 'pending' };
   if (d.currency !== 'NGN' || d.amount !== rec.amount * 100) return { ok: false, error: 'Amount mismatch' };
-  await put('ledger', hash(rec.uid) + '/' + ref, { amount: rec.amount, type: 'fund', ts: Date.now() });
+  await put('ledger', hash(rec.uid) + '/' + ref, { amount: rec.amount, type: 'fund', title: 'Wallet funding', sub: 'Paystack', ref, ts: Date.now() });
   await put('pay', hash(ref), { ...rec, status: 'success', paidAt: Date.now() });
   return { ok: true, amount: rec.amount };
 }
@@ -81,7 +87,7 @@ export default async req => {
     if (p === 'register' && m === 'POST') {
       const id = clip(b.id, 120).toLowerCase(); if (id.length < 5) return J({ error: 'Invalid' }, 400);
       const old = await getStore('users').get(hash(id), { type: 'json' });
-      await put('users', hash(id), { id, name: clip(b.name, 60), email: EMAIL.test(b.email || '') ? clip(b.email, 120).toLowerCase() : '', joined: old?.joined || Date.now(), seen: Date.now() });
+      await put('users', hash(id), { id, name: clip(b.name, 60), email: EMAIL.test(b.email || '') ? clip(b.email, 120).toLowerCase() : '', joined: old?.joined || Date.now(), seen: Date.now(), suspended: !!old?.suspended });
       return J({ ok: true });
     }
     if (p === 'push-sub' && m === 'POST') {
@@ -90,14 +96,31 @@ export default async req => {
       return J({ ok: true });
     }
     if (p === 'track' && m === 'POST') {
-      const a = Number(b.amount), uid = clip(b.uid, 120).toLowerCase(), ref = clip(b.ref, 30).replace(/[^A-Za-z0-9]/g, '');
-      if (!a || a < 0 || a > 1e7 || uid.length < 5 || !ref) return J({ error: 'Invalid' }, 400);
+      const uid = clip(b.uid, 120).toLowerCase(), ref = clip(b.ref, 30).replace(/[^A-Za-z0-9]/g, ''), svc = clip(b.svc, 20);
+      if (uid.length < 5 || !ref) return J({ error: 'Invalid' }, 400);
+      const usr = await getStore('users').get(hash(uid), { type: 'json' });
+      if (usr?.suspended) return J({ error: 'Your account is suspended. Please contact support.' }, 403);
+      const P = await getPricing();
+      if (P.off?.[svc]) return J({ error: 'This service is temporarily unavailable.' }, 503);
+      let charge, label = clip(b.label, 80);
+      if (P.plans[svc]) { const pl = P.plans[svc].find(x => x.label === label); if (!pl) return J({ error: 'That plan is no longer available. Please reselect.' }, 400); charge = pl.price; }
+      else {
+        const face = Number(b.amount);
+        if (!['airtime', 'power'].includes(svc) || !(face >= 100 && face <= 1e6)) return J({ error: 'Invalid' }, 400);
+        charge = svc === 'airtime' ? Math.round(face * (1 - (P.airtimeDiscount || 0) / 100)) : face;
+      }
       const bal = await balanceOf(uid);
-      if (a > bal) return J({ error: 'Insufficient balance. Please fund your wallet.', balance: bal }, 402);
-      await put('ledger', hash(uid) + '/' + ref, { amount: -a, type: 'purchase', ts: Date.now() });
-      await put('txs', hash(ref), { uid, service: clip(b.service, 80), recipient: clip(b.recipient, 40), amount: a, ref, ts: Date.now() });
-      return J({ ok: true, balance: bal - a });
+      if (charge > bal) return J({ error: 'Insufficient balance. Please fund your wallet.', balance: bal }, 402);
+      const title = clip(b.title, 80) || label, recipient = clip(b.recipient, 40);
+      await put('ledger', hash(uid) + '/' + ref, { amount: -charge, type: 'purchase', svc, title, sub: recipient, ref, ts: Date.now() });
+      await put('txs', hash(ref), { uid, service: title, recipient, amount: charge, ref, ts: Date.now() });
+      return J({ ok: true, balance: bal - charge, charge, title });
     }
+    if (p === 'history' && m === 'GET') {
+      const uid = clip(u.searchParams.get('uid'), 120).toLowerCase(); if (uid.length < 5) return J({ error: 'Invalid' }, 400);
+      return J(await history(uid));
+    }
+    if (p === 'pricing' && m === 'GET') return J(await getPricing());
     if (p === 'wallet' && m === 'GET') {
       const uid = clip(u.searchParams.get('uid'), 120).toLowerCase(); if (uid.length < 5) return J({ error: 'Invalid' }, 400);
       return J({ balance: await balanceOf(uid) });
@@ -163,8 +186,32 @@ export default async req => {
       return J({ ok: true, record: rec });
     }
     if (route === 'broadcasts' && m === 'DELETE') { await getStore('bcs').delete(clip(u.searchParams.get('id'), 60)); return J({ ok: true }); }
+    if (route === 'pricing' && m === 'GET') return J(await getPricing());
+    if (route === 'pricing' && m === 'POST') {
+      const cl = a => (Array.isArray(a) ? a : []).slice(0, 60).map(x => ({ label: clip(x.label, 60).trim(), price: Math.round(Number(x.price)) })).filter(x => x.label && x.price > 0 && x.price <= 1e6);
+      const cfg = { airtimeDiscount: Math.min(30, Math.max(0, Number(b.airtimeDiscount) || 0)), off: Object.fromEntries(['airtime', 'data', 'power', 'tv', 'exam'].map(k => [k, !!b.off?.[k]])), plans: { data: cl(b.plans?.data), tv: cl(b.plans?.tv), exam: cl(b.plans?.exam) } };
+      await put('config', 'pricing', cfg); return J({ ok: true });
+    }
+    if (route === 'wallet' && m === 'GET') return J(await history(clip(u.searchParams.get('uid'), 120).toLowerCase()));
+    if (route === 'wallet' && m === 'POST') {
+      const uid = clip(b.uid, 120).toLowerCase(), amt = Math.round(Number(b.amount));
+      if (uid.length < 5 || !amt || Math.abs(amt) > 1e7) return J({ error: 'Invalid amount' }, 400);
+      const cur = await balanceOf(uid); if (cur + amt < 0) return J({ error: 'That would make the balance negative' }, 400);
+      await put('ledger', hash(uid) + '/ADJ' + crypto.randomBytes(5).toString('hex'), { amount: amt, type: 'adjust', title: amt > 0 ? 'Wallet credit' : 'Wallet debit', sub: clip(b.note, 80) || 'Admin adjustment', ts: Date.now() });
+      return J({ ok: true, balance: cur + amt });
+    }
+    if (route === 'users/suspend' && m === 'POST') {
+      const id = clip(b.id, 120), usr = await getStore('users').get(hash(id), { type: 'json' }); if (!usr) return J({ error: 'User not found' }, 404);
+      await put('users', hash(id), { ...usr, suspended: !!b.on }); return J({ ok: true });
+    }
+    if (route === 'refund' && m === 'POST') {
+      const ref = clip(b.ref, 30).replace(/[^A-Za-z0-9]/g, ''), t = await getStore('txs').get(hash(ref), { type: 'json' });
+      if (!t) return J({ error: 'Transaction not found' }, 404); if (t.refunded) return J({ error: 'Already refunded' }, 400);
+      await put('ledger', hash(t.uid) + '/R' + ref, { amount: t.amount, type: 'refund', title: 'Refund', sub: t.service, ref, ts: Date.now() });
+      await put('txs', hash(ref), { ...t, refunded: true }); return J({ ok: true });
+    }
     return J({ error: 'Not found' }, 404);
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/paystack/*', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };

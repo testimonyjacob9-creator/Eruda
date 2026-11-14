@@ -27,3 +27,9 @@ The public key is hardcoded in `index.html` and `netlify/functions/api.mjs`. Add
 
 ## Paystack (wallet funding)
 Add `PAYSTACK_SECRET_KEY` in Netlify. In Paystack → Settings → API Keys & Webhooks, set the webhook URL to `https://YOUR-SITE/api/paystack/webhook`. Users pay via Paystack, the server verifies the payment and credits the wallet (also credited by webhook if the user closes the page).
+
+## Pricing, wallet controls and history
+- Admin → **Pricing**: edit data, TV and exam plans, airtime discount, and switch services on or off. The server charges from this config, not from what the app sends.
+- Admin → **Users**: open a wallet (credit/debit with a note), suspend or activate, remove.
+- Admin → **Transactions**: refund any purchase to the user's wallet (once only).
+- App → **History**: synced from the server on any device; tap a row for a receipt you can download as an image.
