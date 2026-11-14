@@ -112,6 +112,7 @@ svg{width:22px;height:22px;display:block}
   <div class="sheet">
     <div class="tabs"><button id="tl" class="on">Log in</button><button id="ts">Sign up</button></div>
     <div class="fld hide" id="nm"><label>Full name</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><input id="name" placeholder="Your full name" autocomplete="name"></div></div>
+    <div class="fld hide" id="emf"><label>Email address</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg><input id="em" type="email" placeholder="you@example.com" autocomplete="email"></div></div>
     <div class="fld"><label>Phone number or email</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg><input id="id" placeholder="0801 234 5678" autocomplete="username"></div></div>
     <div class="fld"><label>Password</label><div class="inp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><input id="pw" type="password" placeholder="Enter password" autocomplete="current-password"><button id="eye" type="button">SHOW</button></div></div>
     <div class="row" id="fp"><label style="display:flex;gap:8px;align-items:center;color:var(--mut)"><input type="checkbox" checked> Remember me</label><a href="#auth">Forgot password?</a></div>
@@ -141,6 +142,7 @@ user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
 chk:'<path d="m5 12 5 5 9-10"/>',bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
 moon:'<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',gift:'<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 13h18M12 8c-3 0-5-4-2-4s2 4 2 4zm0 0c3 0 5-4 2-4s-2 4-2 4z"/>',
 cp:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'}[n]}</svg>`;
+const mail=(type,data)=>{if(!user.email)return;try{fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,to:user.email,data})}).catch(()=>{})}catch(e){}};
 const $=s=>document.querySelector(s),N=n=>'₦'+n.toLocaleString('en-NG');
 let mode='login',user={name:'Testimony'},bal=25400,tab='home',tx=[
 {t:'MTN Airtime',s:'0803 *** 4421',a:-500,d:'Today, 9:41 AM',i:'airtime'},
@@ -156,7 +158,7 @@ exam:{t:'Exam Pins',f:[['net','Exam',['WAEC','NECO','JAMB']],['plan','Pin type',
 };
 /* auth */
 const setMode=m=>{mode=m;const s=m=='signup';$('#tl').classList.toggle('on',!s);$('#ts').classList.toggle('on',s);
-$('#nm').classList.toggle('hide',!s);$('#fp').classList.toggle('hide',s);$('#go').textContent=s?'Create account':'Log in';
+$('#nm').classList.toggle('hide',!s);$('#emf').classList.toggle('hide',!s);$('#fp').classList.toggle('hide',s);$('#go').textContent=s?'Create account':'Log in';
 $('#ht').textContent=s?'Create your account':'Welcome back';$('#hs').textContent=s?'Join thousands paying smarter every day.':'Airtime, data, bills and more — instant and secure.';$('#err').textContent=''};
 $('#tl').onclick=()=>setMode('login');$('#ts').onclick=()=>setMode('signup');
 $('#eye').onclick=()=>{const p=$('#pw'),h=p.type=='password';p.type=h?'text':'password';$('#eye').textContent=h?'HIDE':'SHOW'};
@@ -164,8 +166,9 @@ $('#go').onclick=()=>{const id=$('#id').value.trim(),pw=$('#pw').value;
 if(mode=='signup'&&!$('#name').value.trim())return $('#err').textContent='Please enter your full name.';
 if(id.length<5)return $('#err').textContent='Enter a valid phone number or email.';
 if(pw.length<6)return $('#err').textContent='Password must be at least 6 characters.';
-if(mode=='signup')user.name=$('#name').value.trim().split(' ')[0];
-$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render()},700)};
+if(mode=='signup'){const em=$('#em').value.trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))return $('#err').textContent='Enter a valid email address.';user.name=$('#name').value.trim().split(' ')[0];user.email=em}
+else if(id.includes('@'))user.email=id;
+$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();if(mode=='signup')mail('welcome',{name:user.name})},700)};
 /* render */
 const txH=a=>a.map(x=>`<div class="tx"><i>${ic(x.i)}</i><div><b>${x.t}</b><small>${x.s} · ${x.d}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
 function render(){
@@ -208,7 +211,7 @@ let a,pl='';if(pf){if(sel.plan==null)return E('Please choose a package.');a=pf[2
 if(a>bal)return E('Insufficient balance. Please fund your wallet.');
 const net=nf[2][sel.net],who=ph?ph.value:'—';
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div style="text-align:center;padding:30px 0"><div class="chip on" style="display:inline-block">Processing…</div></div>`;
-setTimeout(()=>{bal-=a;tx.unshift({t:`${net} ${pl||c.t.replace('Buy ','')}`,s:who,a:-a,d:'Just now',i:k});render();
+setTimeout(()=>{bal-=a;tx.unshift({t:`${net} ${pl||c.t.replace('Buy ','')}`,s:who,a:-a,d:'Just now',i:k});render();mail('receipt',{service:`${net} ${pl||c.t.replace('Buy ','')}`,recipient:who,amount:a,ref:'EEP'+Date.now().toString(36).toUpperCase()});
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><div class="c">${ic('chk')}</div><h3 style="margin:0">Payment successful</h3><p style="color:var(--mut);font-size:13px;margin-top:6px">Your transaction was completed instantly.</p>
 <div class="rc"><p><span>Service</span><b>${net} ${pl||c.t.replace('Buy ','')}</b></p><p><span>Recipient</span><b>${who}</b></p><p><span>Amount</span><b>${N(a)}</b></p><p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dn">Done</button></div>`;
 o.querySelector('#dn').onclick=()=>o.remove()},1100)}}
