@@ -33,3 +33,6 @@ Add `PAYSTACK_SECRET_KEY` in Netlify. In Paystack → Settings → API Keys & We
 - Admin → **Users**: open a wallet (credit/debit with a note), suspend or activate, remove.
 - Admin → **Transactions**: refund any purchase to the user's wallet (once only).
 - App → **History**: synced from the server on any device; tap a row for a receipt you can download as an image.
+
+## Transaction PIN
+Users create a 4-digit PIN at sign-up (or on their first purchase if they signed up earlier) and enter it on a keypad to approve every purchase. PINs are stored hashed (scrypt), 5 wrong attempts lock the PIN for 15 minutes, and users can change it under Profile → Transaction PIN. Admin → Users → **Reset PIN** clears a forgotten PIN.

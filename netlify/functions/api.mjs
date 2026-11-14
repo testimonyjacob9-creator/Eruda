@@ -56,6 +56,19 @@ async function sendPush(subs, title, message) {
   return { sent, failed };
 }
 
+// transaction PIN: scrypt-hashed, 5 wrong tries = 15 min lock
+const WEAK = new Set(['1234', '4321', '0123', '1122', '2580', '1212', '0852']);
+const validPin = p => /^\d{4}$/.test(p || '') && !/^(\d)\1{3}$/.test(p) && !WEAK.has(p);
+const pinHash = (pin, salt) => crypto.scryptSync(pin, salt, 32).toString('hex');
+async function checkPin(uid, usr, pin) {
+  if (!usr?.pin) return { status: 403, error: 'Create your transaction PIN first.', code: 'nopin' };
+  if (usr.pinLock && usr.pinLock > Date.now()) return { status: 429, error: `Too many wrong attempts. Try again in ${Math.ceil((usr.pinLock - Date.now()) / 60000)} min.` };
+  const ok = /^\d{4}$/.test(pin || '') && crypto.timingSafeEqual(Buffer.from(pinHash(pin, usr.pin.s), 'hex'), Buffer.from(usr.pin.h, 'hex'));
+  if (ok) { if (usr.pinFails) await put('users', hash(uid), { ...usr, pinFails: 0, pinLock: 0 }); return null; }
+  const fails = (usr.pinFails || 0) + 1;
+  await put('users', hash(uid), { ...usr, pinFails: fails >= 5 ? 0 : fails, pinLock: fails >= 5 ? Date.now() + 15 * 60000 : 0 });
+  return { status: 401, error: fails >= 5 ? 'Too many wrong attempts. PIN locked for 15 minutes.' : `Wrong PIN. ${5 - fails} attempt(s) left.` };
+}
 const PS = 'https://api.paystack.co';
 const ps = (path, o = {}) => fetch(PS + path, { ...o, headers: { Authorization: 'Bearer ' + E.PAYSTACK_SECRET_KEY, 'Content-Type': 'application/json' } }).then(r => r.json());
 // wallet = sum of ledger entries (one key per entry, so crediting twice is harmless)
@@ -87,7 +100,7 @@ export default async req => {
     if (p === 'register' && m === 'POST') {
       const id = clip(b.id, 120).toLowerCase(); if (id.length < 5) return J({ error: 'Invalid' }, 400);
       const old = await getStore('users').get(hash(id), { type: 'json' });
-      await put('users', hash(id), { id, name: clip(b.name, 60), email: EMAIL.test(b.email || '') ? clip(b.email, 120).toLowerCase() : '', joined: old?.joined || Date.now(), seen: Date.now(), suspended: !!old?.suspended });
+      await put('users', hash(id), { ...old, id, name: clip(b.name, 60), email: EMAIL.test(b.email || '') ? clip(b.email, 120).toLowerCase() : '', joined: old?.joined || Date.now(), seen: Date.now(), suspended: !!old?.suspended });
       return J({ ok: true });
     }
     if (p === 'push-sub' && m === 'POST') {
@@ -100,6 +113,7 @@ export default async req => {
       if (uid.length < 5 || !ref) return J({ error: 'Invalid' }, 400);
       const usr = await getStore('users').get(hash(uid), { type: 'json' });
       if (usr?.suspended) return J({ error: 'Your account is suspended. Please contact support.' }, 403);
+      const bad = await checkPin(uid, usr, b.pin); if (bad) return J({ error: bad.error, code: bad.code }, bad.status);
       const P = await getPricing();
       if (P.off?.[svc]) return J({ error: 'This service is temporarily unavailable.' }, 503);
       let charge, label = clip(b.label, 80);
@@ -115,6 +129,16 @@ export default async req => {
       await put('ledger', hash(uid) + '/' + ref, { amount: -charge, type: 'purchase', svc, title, sub: recipient, ref, ts: Date.now() });
       await put('txs', hash(ref), { uid, service: title, recipient, amount: charge, ref, ts: Date.now() });
       return J({ ok: true, balance: bal - charge, charge, title });
+    }
+    if (p === 'pin/status' && m === 'GET') { const usr = await getStore('users').get(hash(clip(u.searchParams.get('uid'), 120).toLowerCase()), { type: 'json' }); return J({ has: !!usr?.pin }); }
+    if (p === 'pin/set' && m === 'POST') {
+      const uid = clip(b.uid, 120).toLowerCase(), usr = await getStore('users').get(hash(uid), { type: 'json' });
+      if (!usr) return J({ error: 'Account not found' }, 404);
+      if (!validPin(b.pin)) return J({ error: 'Choose a 4-digit PIN that is not 1234 or repeated digits.' }, 400);
+      if (usr.pin) { const bad = await checkPin(uid, usr, b.old); if (bad) return J({ error: bad.error }, bad.status); }
+      const fresh = (await getStore('users').get(hash(uid), { type: 'json' })) || usr, salt = crypto.randomBytes(8).toString('hex');
+      await put('users', hash(uid), { ...fresh, pin: { s: salt, h: pinHash(b.pin, salt) }, pinFails: 0, pinLock: 0 });
+      return J({ ok: true });
     }
     if (p === 'history' && m === 'GET') {
       const uid = clip(u.searchParams.get('uid'), 120).toLowerCase(); if (uid.length < 5) return J({ error: 'Invalid' }, 400);
@@ -169,7 +193,7 @@ export default async req => {
       const series = [...Array(7)].map((_, i) => { const d = new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10); const t = txs.filter(x => new Date(x.ts).toISOString().slice(0, 10) === d); return { d, sales: t.reduce((s, x) => s + x.amount, 0), count: t.length }; });
       return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.reduce((s, x) => s + x.amount, 0), funded: paid.reduce((s, x) => s + x.amount, 0), fundCount: paid.length, series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, paystack: !!E.PAYSTACK_SECRET_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
     }
-    if (route === 'users' && m === 'GET') return J({ items: (await all('users')).sort((a, c) => c.joined - a.joined) });
+    if (route === 'users' && m === 'GET') return J({ items: (await all('users')).sort((a, c) => c.joined - a.joined).map(({ pin, pinFails, pinLock, ...x }) => ({ ...x, hasPin: !!pin })) });
     if (route === 'users' && m === 'DELETE') { const id = clip(u.searchParams.get('id'), 120); await getStore('users').delete(hash(id)); return J({ ok: true }); }
     if (route === 'txs') return J({ items: (await all('txs')).sort((a, c) => c.ts - a.ts).slice(0, 500) });
     if (route === 'broadcasts' && m === 'GET') return J({ items: (await all('bcs')).sort((a, c) => c.ts - a.ts) });
@@ -204,6 +228,10 @@ export default async req => {
       const id = clip(b.id, 120), usr = await getStore('users').get(hash(id), { type: 'json' }); if (!usr) return J({ error: 'User not found' }, 404);
       await put('users', hash(id), { ...usr, suspended: !!b.on }); return J({ ok: true });
     }
+    if (route === 'users/resetpin' && m === 'POST') {
+      const id = clip(b.id, 120), usr = await getStore('users').get(hash(id), { type: 'json' }); if (!usr) return J({ error: 'User not found' }, 404);
+      const { pin, pinFails, pinLock, ...rest } = usr; await put('users', hash(id), rest); return J({ ok: true });
+    }
     if (route === 'refund' && m === 'POST') {
       const ref = clip(b.ref, 30).replace(/[^A-Za-z0-9]/g, ''), t = await getStore('txs').get(hash(ref), { type: 'json' });
       if (!t) return J({ error: 'Transaction not found' }, 404); if (t.refunded) return J({ error: 'Already refunded' }, 400);
@@ -214,4 +242,4 @@ export default async req => {
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
