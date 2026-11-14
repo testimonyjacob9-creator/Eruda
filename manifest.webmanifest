@@ -1,6 +1,6 @@
 {
  "name": "Erudite Easy Pay",
- "short_name": "Erudite",
+ "short_name": "Erudite Pay",
  "description": "Pay Smart. Live Better. Airtime, data, bills and more \u2014 instant and secure.",
  "start_url": "/",
  "scope": "/",
@@ -26,5 +26,12 @@
    "type": "image/png",
    "purpose": "maskable"
   }
+ ],
+ "id": "/",
+ "lang": "en-NG",
+ "orientation": "portrait",
+ "categories": [
+  "finance",
+  "utilities"
  ]
 }

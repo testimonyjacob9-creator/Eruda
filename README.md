@@ -62,3 +62,9 @@ Airtime, data, cable TV, electricity and exam pins are delivered through the the
 - Your the reseller wallet is debited per order, so keep it funded. A failed order is refunded to the user's wallet automatically; unknown/slow outcomes stay "pending" and are settled by `/api/order-status` (the app checks automatically) — nothing is refunded while delivery is uncertain.
 - Exam pins: WAEC, NECO, NABTEB (the reseller doesn't sell JAMB). Electricity tokens and exam pins are shown on the receipt and in History.
 - **Network delivery rate**: shown before payment. Live = last 5 settled orders per network/service (20% each); Admin → Pricing sets a fallback until 5 orders exist.
+
+## Install (PWA) and push notifications
+- **Install:** Android/Chrome shows an "Install Erudite Easy Pay" card on the home screen (native install prompt); iPhone/iPad shows step-by-step "Add to Home Screen" instructions. The card hides once installed and can be dismissed for 7 days.
+- **Notifications:** an "Enable" card asks permission and links the device to the user's account (iPhone needs the app installed first). A test alert is sent when turned on; devices re-link automatically at login.
+- **Admin → Broadcast:** send to everyone or to one user (by email); channels: in-app, email, push. Push needs `VAPID_PRIVATE_KEY` in Netlify (must match the public key in `index.html`/`api.mjs`).
+- **Automatic pushes:** wallet funded, and order refunded.

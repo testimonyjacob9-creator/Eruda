@@ -92,17 +92,19 @@ async function sendEmails(list, title, message) {
   return { sent, failed };
 }
 
-async function sendPush(subs, title, message) {
+async function sendPush(subs, title, message, url = '/') {
   if (!E.VAPID_PRIVATE_KEY) return { sent: 0, failed: subs.length, error: 'VAPID_PRIVATE_KEY not set' };
   webpush.setVapidDetails('mailto:' + (E.SENDER_EMAIL || 'admin@example.com'), VAPID_PUBLIC, E.VAPID_PRIVATE_KEY);
-  const payload = JSON.stringify({ title, body: clip(message, 200), url: '/' });
+  const payload = JSON.stringify({ title, body: clip(message, 200), url, tag: 'eep-' + Date.now().toString(36) });
   let sent = 0, failed = 0;
   await Promise.all(subs.map(async s => {
-    try { await webpush.sendNotification(s.sub, payload); sent++; }
+    try { await webpush.sendNotification(s.sub, payload, { TTL: 86400, urgency: 'high' }); sent++; }
     catch (e) { failed++; if (e.statusCode === 404 || e.statusCode === 410) await getStore('subs').delete(hash(s.sub.endpoint)).catch(() => {}); }
   }));
   return { sent, failed };
 }
+// push to one user's devices (never blocks or throws)
+const pushUser = async (uid, title, message) => { try { const subs = (await all('subs')).filter(x => (x.uid || '').toLowerCase() === uid); return subs.length ? await sendPush(subs, title, message) : { sent: 0, failed: 0 }; } catch { return { sent: 0, failed: 0 }; } };
 
 // transaction PIN: scrypt-hashed, 5 wrong tries = 15 min lock
 const WEAK = new Set(['1234', '4321', '0123', '1122', '2580', '1212', '0852']);
@@ -144,6 +146,7 @@ async function credit(ref) {
   if (d.currency !== 'NGN' || d.amount !== rec.amount * 100) return { ok: false, error: 'Amount mismatch' };
   await put('ledger', hash(rec.uid) + '/' + ref, { amount: rec.amount, type: 'fund', title: 'Wallet funding', sub: 'Paystack', ref, ts: Date.now() });
   await put('pay', hash(ref), { ...rec, status: 'success', paidAt: Date.now() });
+  pushUser(String(rec.uid || '').toLowerCase(), 'Wallet funded', `₦${Number(rec.amount).toLocaleString('en-NG')} has been added to your wallet.`);
   return { ok: true, amount: rec.amount };
 }
 
@@ -204,7 +207,7 @@ async function settle(uid, ref, status, extra = {}, reason = '') {
   }
   await put('ledger', hash(uid) + '/R' + ref, { amount: -led.amount, type: 'refund', title: 'Refund · ' + led.title, sub: led.sub, ref, ts: Date.now() });
   await put('ledger', lk, { ...led, status: 'failed' }); await put('txs', hash(ref), { ...tx, status: 'failed', refunded: true, reason: clip(reason, 200) });
-  await netstat(led.svc, led.net, 'failed'); return { ...led, status: 'failed' };
+  await netstat(led.svc, led.net, 'failed'); await pushUser(uid, 'Order refunded', `${led.title} could not be completed. ₦${Number(-led.amount).toLocaleString('en-NG')} was returned to your wallet.`); return { ...led, status: 'failed' };
 }
 const seenIp = new Map();
 const limited = (req, n = 40) => { const ip = req.headers.get('x-nf-client-connection-ip') || 'x', now = Date.now(), l = (seenIp.get(ip) || []).filter(t => now - t < 600000); if (l.length >= n) return true; seenIp.set(ip, [...l, now]); return false; };
@@ -242,8 +245,9 @@ export default async req => {
     }
     if (p === 'push-sub' && m === 'POST') {
       if (!b.sub?.endpoint) return J({ error: 'Invalid' }, 400);
-      await put('subs', hash(b.sub.endpoint), { sub: b.sub, uid: clip(b.uid, 120), ts: Date.now() });
-      return J({ ok: true });
+      await put('subs', hash(b.sub.endpoint), { sub: b.sub, uid: clip(b.uid, 120).toLowerCase(), ts: Date.now() });
+      let test = null; if (b.welcome) test = await sendPush([{ sub: b.sub }], 'Notifications are on', 'You will now get payment, order and offer updates from Erudite Easy Pay.');
+      return J({ ok: true, test });
     }
     if (p === 'vtu/plans' && m === 'GET') {
       const svc = clip(u.searchParams.get('svc'), 10), net = netKey(svc, clip(u.searchParams.get('net'), 60));
@@ -398,7 +402,7 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
       return J({ ok: true });
     }
     if (p === 'inbox' && m === 'GET') {
-      const items = (await all('bcs')).filter(x => x.channels?.app).sort((a, c) => c.ts - a.ts).slice(0, 20).map(({ id, ts, title, message }) => ({ id, ts, title, message }));
+      const me = clip(u.searchParams.get('uid'), 120).toLowerCase(), items = (await all('bcs')).filter(x => x.channels?.app && (!x.to || x.to === me)).sort((a, c) => c.ts - a.ts).slice(0, 20).map(({ id, ts, title, message }) => ({ id, ts, title, message }));
       return J({ items });
     }
 
@@ -425,14 +429,16 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
     if (route === 'txs') return J({ items: (await all('txs')).sort((a, c) => c.ts - a.ts).slice(0, 500) });
     if (route === 'broadcasts' && m === 'GET') return J({ items: (await all('bcs')).sort((a, c) => c.ts - a.ts) });
     if (route === 'broadcast' && m === 'POST') {
-      const title = clip(b.title, 80).trim(), message = clip(b.message, 2000).trim(), ch = b.channels || {};
+      const title = clip(b.title, 80).trim(), message = clip(b.message, 2000).trim(), ch = b.channels || {}, to = clip(b.to, 120).trim().toLowerCase();
       if (!title || !message) return J({ error: 'Title and message are required' }, 400);
       if (!ch.app && !ch.email && !ch.push) return J({ error: 'Pick at least one channel' }, 400);
+      let target = null;
+      if (to) { target = await getStore('users').get(hash(to), { type: 'json' }); if (!target) return J({ error: 'No user found with that email or ID' }, 404); }
       const sent = {};
       if (ch.app) sent.app = { sent: 1 };
-      if (ch.email) { const emails = [...new Set((await all('users')).map(x => x.email).filter(Boolean))]; sent.email = await sendEmails(emails, title, message); }
-      if (ch.push) sent.push = await sendPush(await all('subs'), title, message);
-      const rec = { id: crypto.randomUUID(), ts: Date.now(), title, message, channels: { app: !!ch.app, email: !!ch.email, push: !!ch.push }, sent };
+      if (ch.email) { const emails = target ? [target.email].filter(Boolean) : [...new Set((await all('users')).map(x => x.email).filter(Boolean))]; sent.email = await sendEmails(emails, title, message); }
+      if (ch.push) { const subs = (await all('subs')).filter(x => !to || (x.uid || '').toLowerCase() === to); sent.push = subs.length || !to ? await sendPush(subs, title, message) : { sent: 0, failed: 0, error: 'This user has not turned on notifications' }; }
+      const rec = { id: crypto.randomUUID(), ts: Date.now(), title, message, ...(to ? { to } : {}), channels: { app: !!ch.app, email: !!ch.email, push: !!ch.push }, sent };
       await put('bcs', rec.id, rec);
       return J({ ok: true, record: rec });
     }

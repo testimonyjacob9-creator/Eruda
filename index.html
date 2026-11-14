@@ -124,6 +124,8 @@ svg{width:22px;height:22px;display:block}
 .nrb{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;padding:9px 12px;border-radius:12px;margin:-4px 0 14px}.nrb i{width:9px;height:9px;border-radius:50%;flex:none;background:currentColor}
 .nrb.rg{background:rgba(22,163,74,.12);color:#16a34a}.nrb.rw{background:rgba(217,119,6,.14);color:#d97706}.nrb.rb2{background:rgba(220,38,38,.12);color:#dc2626}
 .chip small{display:block;font-weight:600;color:var(--mut);font-size:11px;margin-top:2px}
+.pc{display:flex;align-items:center;gap:12px;margin:10px 16px 0;padding:12px 14px;border-radius:18px;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh)}.pc>i{width:38px;height:38px;border-radius:12px;background:var(--soft);color:var(--blue);display:grid;place-items:center;flex:none;font-style:normal}.pc>div{flex:1;min-width:0}.pc b{font-size:14px;display:block}.pc small{color:var(--mut);font-size:12px;display:block;margin-top:1px}
+.pcb{border:0;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border-radius:11px;padding:9px 14px;font-weight:800;font-size:12px;cursor:pointer}.pcx{border:0;background:none;color:var(--mut);font-size:20px;line-height:1;cursor:pointer;padding:0 2px}
 </style>
 </head>
 <body>
@@ -178,7 +180,7 @@ const H={'Content-Type':'application/json'};let inbox=[],PRICING=null,hasPin=fal
 const api=(p,o)=>fetch('/api/'+p,o).then(r=>r.json()).catch(()=>null);
 const seen=()=>{try{return +localStorage.getItem('eep_seen')||0}catch(e){return 0}};
 const unread=()=>inbox.filter(x=>x.ts>seen()).length;
-async function loadInbox(){const r=await api('inbox');if(r&&r.items){const n=r.items.length;inbox=r.items;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
+async function loadInbox(){const r=await api('inbox?uid='+encodeURIComponent(user.id||''));if(r&&r.items){const n=r.items.length;inbox=r.items;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
 let wsig='';
 async function loadWallet(){const r=await api('history?uid='+encodeURIComponent(user.id));if(r&&typeof r.balance=='number'){const sg=r.balance+':'+(r.items||[]).length;if(sg===wsig)return;wsig=sg;bal=r.balance;tx=(r.items||[]).map(x=>({t:x.status=='failed'?x.title+' · failed':x.title,s:x.sub||'',a:x.amount,ts:x.ts,i:x.type=='purchase'&&x.svc?x.svc:'fund',ref:x.ref||'',st:x.status||'success',tk:x.token,pins:x.pins,units:x.units}));tx.filter(x=>x.st=='pending').slice(0,3).forEach(x=>api('order-status?uid='+encodeURIComponent(user.id)+'&ref='+x.ref).then(z=>{if(z&&z.status&&z.status!='pending'){wsig='';loadWallet()}}));if(!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
 function askPin(title,sub){return new Promise(res=>{let v='';const o=pop(`<div class="ok"><h3 style="margin:0 0 4px">${title}</h3><p style="color:var(--mut);font-size:13px;margin-bottom:18px">${sub||''}</p><div id="pd" style="display:flex;gap:14px;justify-content:center;margin-bottom:18px">${[0,1,2,3].map(()=>'<span style="width:16px;height:16px;border-radius:50%;border:2px solid var(--blue);display:block"></span>').join('')}</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:280px;margin:0 auto">${[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map(k=>k===''?'<span></span>':`<button class="chip" data-k="${k}" style="padding:16px;font-size:20px;text-align:center">${k}</button>`).join('')}</div>${/^(Current|Enter)/.test(title)?'<button class="lk" id="fpn" type="button" style="display:block;margin:14px auto 0">Forgot PIN?</button>':''}<button class="btn" id="pc" style="margin-top:18px;background:var(--soft);color:var(--blue);box-shadow:none">Cancel</button></div>`);
@@ -211,14 +213,34 @@ c.toBlob(bl=>{const a=document.createElement('a');a.href=URL.createObjectURL(bl)
 api('paystack/verify?reference='+encodeURIComponent(ref)).then(r=>{toast(r&&r.ok?`Payment received: ${N(r.amount)}${user.id?'':'. Log in to see your balance'}`:'We could not confirm the payment yet');if(user.id)loadWallet()})})();
 setInterval(()=>{if(user.id){loadInbox();loadWallet()}},60000);
 const u8=k=>{const b=atob((k+'='.repeat((4-k.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
-async function enablePush(){try{if(!('serviceWorker' in navigator)||!('PushManager' in window))return toast('Push is not supported on this browser');
-if(await Notification.requestPermission()!=='granted')return toast('Notifications are blocked');
-const reg=await navigator.serviceWorker.ready;const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(VAPID_PUBLIC)});
-await api('push-sub',{method:'POST',headers:H,body:JSON.stringify({sub,uid:user.id})});toast('Notifications enabled')}catch(e){toast('Could not enable notifications')}}
+const isStandalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const dismissed=k=>{try{return Date.now()-(+localStorage.getItem('eep_d_'+k)||0)<6048e5}catch(e){return false}};
+const dismiss=k=>{try{localStorage.setItem('eep_d_'+k,String(Date.now()))}catch(e){}};
+let deferredInstall=null;
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;if(user.id&&tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()});
+addEventListener('appinstalled',()=>{deferredInstall=null;toast('App installed');if(user.id)render()});
+const canInstall=()=>!isStandalone()&&!dismissed('inst')&&(!!deferredInstall||isIOS()||/android/i.test(navigator.userAgent));
+const canNotify=()=>'Notification' in window&&Notification.permission==='default'&&!dismissed('notif')&&(!isIOS()||isStandalone());
+const cards=()=>`${canInstall()?`<div class="pc"><i>${ic('data')}</i><div><b>Install Erudite Easy Pay</b><small>Open it like an app from your home screen.</small></div><button class="pcb" id="inst">Install</button><button class="pcx" id="instx" aria-label="Dismiss">×</button></div>`:''}${canNotify()?`<div class="pc"><i>${ic('bell')}</i><div><b>Turn on notifications</b><small>Get payment, order and offer alerts instantly.</small></div><button class="pcb" id="ntf">Enable</button><button class="pcx" id="ntfx" aria-label="Dismiss">×</button></div>`:''}`;
+async function installApp(){
+  if(deferredInstall){deferredInstall.prompt();const c=await deferredInstall.userChoice.catch(()=>null);deferredInstall=null;if(c&&c.outcome==='accepted')toast('Installing…');render();return}
+  const steps=isIOS()?['Tap the <b>Share</b> button in Safari (square with an arrow)','Scroll and tap <b>Add to Home Screen</b>','Tap <b>Add</b> — open Erudite from your home screen']:['Open your browser menu (<b>⋮</b>)','Tap <b>Install app</b> or <b>Add to Home screen</b>','Confirm — open Erudite from your home screen'];
+  const o=pop(`<div class="ok"><h3 style="margin:0 0 12px">Install Erudite Easy Pay</h3><ol style="text-align:left;font-size:14px;line-height:1.7;padding-left:20px;margin-bottom:16px">${steps.map(x=>`<li>${x}</li>`).join('')}</ol><button class="btn" id="dn">Got it</button></div>`);o.querySelector('#dn').onclick=()=>o.remove()}
+async function subscribePush(first){const reg=await navigator.serviceWorker.ready;const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(VAPID_PUBLIC)});
+  return api('push-sub',{method:'POST',headers:H,body:JSON.stringify({sub,uid:user.id,welcome:!!first})})}
+async function enablePush(){try{
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){return toast(isIOS()&&!isStandalone()?'Install the app first (Share → Add to Home Screen), then enable notifications':'Notifications are not supported on this browser')}
+  if(Notification.permission==='denied')return toast('Notifications are blocked — allow them in your browser or phone settings');
+  const p=await Notification.requestPermission();if(p!=='granted')return toast('Notifications were not enabled');
+  const r=await subscribePush(true);rmOv();toast(r&&r.test&&r.test.sent?'Notifications enabled — check for a test alert':'Notifications enabled');render()}catch(e){toast('Could not enable notifications')}}
+// returning users who already allowed notifications: keep this device linked to the account
+const syncPush=()=>{if('Notification' in window&&Notification.permission==='granted'&&'serviceWorker' in navigator&&'PushManager' in window)subscribePush(false).catch(()=>{})};
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{if(!e.data)return;if(e.data.type=='push'){loadInbox();loadWallet()}if(e.data.type=='resub')syncPush()});
 function showInbox(){try{localStorage.setItem('eep_seen',String(Date.now()))}catch(e){}
 const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const o=pop(`<h3>Messages</h3>${inbox.map(x=>`<div class="tx" style="margin:0 0 10px;align-items:flex-start"><i>${ic('bell')}</i><div><b>${esc(x.title)}</b><small style="display:block;white-space:pre-wrap;margin-top:2px">${esc(x.message)}</small><small>${new Date(x.ts).toLocaleDateString('en-NG',{day:'numeric',month:'short'})}</small></div></div>`).join('')||'<p style="color:var(--mut);font-size:13px;margin-bottom:14px">No messages yet.</p>'}<button class="btn" id="ep" style="margin-top:6px">Turn on push notifications</button>`);
-o.querySelector('#ep').onclick=enablePush;render()}
+const o=pop(`<h3>Messages</h3>${inbox.map(x=>`<div class="tx" style="margin:0 0 10px;align-items:flex-start"><i>${ic('bell')}</i><div><b>${esc(x.title)}</b><small style="display:block;white-space:pre-wrap;margin-top:2px">${esc(x.message)}</small><small>${new Date(x.ts).toLocaleDateString('en-NG',{day:'numeric',month:'short'})}</small></div></div>`).join('')||'<p style="color:var(--mut);font-size:13px;margin-bottom:14px">No messages yet.</p>'}${('Notification' in window&&Notification.permission==='granted')?'<p style="color:var(--ok);font-size:13px;font-weight:700;margin-top:6px">✓ Push notifications are on</p>':'<button class="btn" id="ep" style="margin-top:6px">Turn on push notifications</button>'}`);
+const ep=o.querySelector('#ep');if(ep)ep.onclick=enablePush;render()}
 const $=s=>document.querySelector(s),N=n=>'₦'+n.toLocaleString('en-NG');
 let mode='login',user={name:'Testimony'},bal=0,tab='home',tx=[];
 const NET=['MTN','Airtel','Glo','9mobile'];
@@ -251,7 +273,7 @@ async function startSession(fu){
   await api('register',{method:'POST',headers:H,body:JSON.stringify({id:user.id,name:user.name,email:em})});
   if(p&&p.pin){await api('pin/set',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,pin:p.pin})})}
   const ps=await api('pin/status?uid='+encodeURIComponent(user.id));hasPin=!!(ps&&ps.has);
-  loadInbox();loadWallet();loadPricing()}
+  loadInbox();loadWallet();loadPricing();syncPush()}
 window.startSession=startSession;
 window.endSession=()=>{started='';$('#app').classList.add('hide');$('#auth').classList.remove('hide');$('#go').textContent=mode=='signup'?'Create account':'Log in';$('#go').disabled=false;$('#pw').value='';tab='home'};
 $('#go').onclick=async()=>{const em=$('#id').value.trim().toLowerCase(),pw=$('#pw').value,E=$('#err');E.textContent='';
@@ -291,7 +313,7 @@ const txH=a=>!a.length?'<p style="margin:0 16px;color:var(--mut);font-size:13px"
 function render(){
 const v=$('#v');
 if(tab=='home')v.innerHTML=`<div class="top"><div class="who"><img class="tlogo" src="/icon-192.png" alt="Erudite Easy Pay"><div class="av">${user.name[0].toUpperCase()}</div><div><small>Good day 👋</small><b>${user.name}</b></div></div><div style="display:flex;gap:8px"><button class="ib" id="th">${ic('moon',20)}</button><button class="ib" id="bl" style="position:relative">${ic('bell',20)}${unread()?`<b style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center">${unread()}</b>`:''}</button></div></div>
-<div class="wal"><small>Wallet balance</small><h2>${N(bal)}</h2><div class="bt"><button class="w" data-s="fund">+ Fund wallet</button><button data-s="airtime">Quick airtime</button></div></div>
+${cards()}<div class="wal"><small>Wallet balance</small><h2>${N(bal)}</h2><div class="bt"><button class="w" data-s="fund">+ Fund wallet</button><button data-s="airtime">Quick airtime</button></div></div>
 <div class="sec"><b>Services</b></div>
 <div class="grid">${[['airtime','Airtime'],['data','Data'],['power','Electricity'],['tv','Cable TV'],['exam','Exam Pins'],['fund','Fund Wallet']].map(a=>`<div class="svc" data-s="${a[0]}"><i>${ic(a[0])}</i>${a[1]}</div>`).join('')}</div>
 <div class="promo">${ic('gift',30)}<div><b>Earn 2% cashback</b><span>On every data purchase this week.</span></div></div>
@@ -303,6 +325,7 @@ $('#nav').innerHTML=[['home','Home'],['hist','History'],['user','Profile']].map(
 }
 document.addEventListener('click',e=>{
 const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
+if(e.target.closest('#inst')){installApp();return}if(e.target.closest('#instx')){dismiss('inst');render();return}if(e.target.closest('#ntf')){enablePush();return}if(e.target.closest('#ntfx')){dismiss('notif');render();return}
 const s=e.target.closest('[data-s]');if(s){openS(s.dataset.s);return}
 if(e.target.closest('#bl')){showInbox();return}
 if(e.target.closest('#chatfab')){openChat();return}
