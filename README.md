@@ -56,9 +56,9 @@ Code already sends a plain-text part, reply-to, and clean templates. The rest is
 ## Branding
 `logo.jpg` (source), `og-image.jpg` (1200×630 link preview for WhatsApp etc.), `icon-192/512.png`, `apple-touch-icon.png`, `favicon.png`, `logo-email.png`. If your live URL differs from `https://eruditeeasypay.netlify.app`, search/replace it in `index.html` (OG tags, canonical).
 
-## WoodPay reseller API (delivery of every purchase)
-Airtime, data, cable TV, electricity and exam pins are delivered through the WoodPay reseller API (`https://woodpay.com.ng/api/v1/*`). **Only one thing to set:** Netlify env var `WOODPAY_API_KEY` (your WoodPay reseller key), then redeploy.
-- Plans/prices are live from WoodPay; Admin → Pricing sets your markup (data, TV, exam), airtime discount and electricity fee %.
-- Your WoodPay wallet is debited per order, so keep it funded. A failed order is refunded to the user's wallet automatically; unknown/slow outcomes stay "pending" and are settled by `/api/order-status` (the app checks automatically) — nothing is refunded while delivery is uncertain.
-- Exam pins: WAEC, NECO, NABTEB (WoodPay doesn't sell JAMB). Electricity tokens and exam pins are shown on the receipt and in History.
+## Reseller API (delivery of every purchase)
+Airtime, data, cable TV, electricity and exam pins are delivered through the the reseller API (`https://woodpay.com.ng/api/v1/*`). **Only one thing to set:** Netlify env var `WOODPAY_API_KEY` (your the reseller key), then redeploy.
+- Plans/prices are live from the reseller; Admin → Pricing sets your markup (data, TV, exam), airtime discount and electricity fee %.
+- Your the reseller wallet is debited per order, so keep it funded. A failed order is refunded to the user's wallet automatically; unknown/slow outcomes stay "pending" and are settled by `/api/order-status` (the app checks automatically) — nothing is refunded while delivery is uncertain.
+- Exam pins: WAEC, NECO, NABTEB (the reseller doesn't sell JAMB). Electricity tokens and exam pins are shown on the receipt and in History.
 - **Network delivery rate**: shown before payment. Live = last 5 settled orders per network/service (20% each); Admin → Pricing sets a fallback until 5 orders exist.

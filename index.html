@@ -334,18 +334,18 @@ ${k=='data'||k=='tv'||k=='exam'?`<div class="fld"><label>${k=='tv'?'Package':k==
 const E=m=>o.querySelector('#e2').textContent=m,q=s=>o.querySelector(s);
 const bindNets=()=>o.querySelectorAll('#nc .chip').forEach(b=>b.onclick=()=>pickNet(b.dataset.n,b));
 async function pickNet(n,b){net=n;plan=null;q('#vn')&&(q('#vn').textContent='');o.querySelectorAll('#nc .chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');E('');
-  showRate();const pl=q('#pl');if(pl){pl.innerHTML='<span style="color:var(--mut);font-size:13px">Loading plans…</span>';const r=await api(`wp/plans?svc=${k}&net=${encodeURIComponent(n)}`);if(net!==n)return;
+  showRate();const pl=q('#pl');if(pl){pl.innerHTML='<span style="color:var(--mut);font-size:13px">Loading plans…</span>';const r=await api(`vtu/plans?svc=${k}&net=${encodeURIComponent(n)}`);if(net!==n)return;
     if(!r||!r.plans||!r.plans.length){pl.innerHTML=`<span style="color:var(--mut);font-size:13px">${X(r&&r.error||'No plans available right now.')}</span>`;return}
     pl.innerHTML=r.plans.map((p,i)=>`<button class="chip" data-i="${i}">${X(p.label)}<small>${N(p.price)}</small></button>`).join('');
     pl.querySelectorAll('.chip').forEach(x=>x.onclick=()=>{pl.querySelectorAll('.chip').forEach(y=>y.classList.remove('on'));x.classList.add('on');plan=r.plans[+x.dataset.i];E('')})}}
 async function showRate(){const bx=q('#rb');if(!bx)return;bx.innerHTML='';if(!net)return;const t=net;const r=await api(`network-status?svc=${k}&net=${encodeURIComponent(net)}`);if(net!==t||!r||r.pct==null)return;
   const p=r.pct,nm=k=='power'?(net.match(/\(([^)]+)\)/)||[])[1]||net:NETL[net]||net,cl=p>=90?'rg':p>=70?'rw':'rb2',m=p>=90?`${nm} delivery rate: ${p}% — Excellent ✓`:p>=70?`${nm} delivery rate: ${p}% — Some delays possible`:`${nm} delivery rate: ${p}% — High traffic, consider another network`;
   bx.innerHTML=`<div class="nrb ${cl}"><i></i>${X(m)}</div>`}
-if(k=='power'){api('wp/discos').then(r=>{const l=(r&&r.providers)||FALLBACK_DISCOS;q('#nc').innerHTML=l.map(n=>`<button class="chip" data-n="${X(n)}">${X(n)}</button>`).join('');bindNets()})}else bindNets();
+if(k=='power'){api('vtu/discos').then(r=>{const l=(r&&r.providers)||FALLBACK_DISCOS;q('#nc').innerHTML=l.map(n=>`<button class="chip" data-n="${X(n)}">${X(n)}</button>`).join('');bindNets()})}else bindNets();
 o.querySelectorAll('#mtc .chip').forEach(b=>b.onclick=()=>{mt=b.dataset.m;o.querySelectorAll('#mtc .chip').forEach(x=>x.classList.toggle('on',x===b));q('#vn').textContent=''});
 o.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>q('#am').value=b.dataset.q);
 const vf=q('#vf');if(vf)vf.onclick=async()=>{if(!net)return E('Select a '+(k=='tv'?'provider':'disco')+' first.');const n=q('#ph').value.replace(/\D/g,'');if(n.length<5)return E('Enter the number to verify.');E('');vf.textContent='…';
-  const r=await api('wp/verify',{method:'POST',headers:H,body:JSON.stringify({svc:k,net,number:n,meter_type:mt})});vf.textContent='VERIFY';
+  const r=await api('vtu/verify',{method:'POST',headers:H,body:JSON.stringify({svc:k,net,number:n,meter_type:mt})});vf.textContent='VERIFY';
   if(r&&r.ok){q('#vn').style.color='var(--ok)';q('#vn').textContent='✓ '+r.name}else{q('#vn').textContent='';E(r&&r.error||'Could not verify.')}};
 const PH=/^0[789][01]\d{8}$/,dg=v=>String(v||'').replace(/\D/g,'');
 const pinTxt=p=>Array.isArray(p)?p.map(x=>typeof x=='object'?Object.values(x).join(' / '):x).join('\n'):String(p||'');

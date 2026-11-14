@@ -245,17 +245,17 @@ export default async req => {
       await put('subs', hash(b.sub.endpoint), { sub: b.sub, uid: clip(b.uid, 120), ts: Date.now() });
       return J({ ok: true });
     }
-    if (p === 'wp/plans' && m === 'GET') {
+    if (p === 'vtu/plans' && m === 'GET') {
       const svc = clip(u.searchParams.get('svc'), 10), net = netKey(svc, clip(u.searchParams.get('net'), 60));
       if (!['data', 'tv', 'exam'].includes(svc)) return J({ error: 'Invalid' }, 400);
       const plans = await wpPlans(svc, net);
       return plans ? J({ ok: true, plans }) : J({ error: 'Plans are unavailable right now. Please try again shortly.' }, 503);
     }
-    if (p === 'wp/discos' && m === 'GET') {
+    if (p === 'vtu/discos' && m === 'GET') {
       const r = await wpCall('electricity_providers');
       return r.ok && Array.isArray(r.d.providers) ? J({ ok: true, providers: r.d.providers }) : J({ error: 'Unavailable' }, 503);
     }
-    if (p === 'wp/verify' && m === 'POST') {
+    if (p === 'vtu/verify' && m === 'POST') {
       if (limited(req, 30)) return J({ error: 'Too many requests' }, 429);
       const svc = clip(b.svc, 10), num = clip(b.number, 20).trim();
       const r = svc === 'tv' ? await wpCall('cable_verify', { method: 'POST', body: { provider: netKey('tv', clip(b.net, 40)), smartcard: num } })
@@ -474,4 +474,4 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/auth/*', '/api/wp/*', '/api/network-status', '/api/order-status', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/auth/*', '/api/vtu/*', '/api/network-status', '/api/order-status', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
