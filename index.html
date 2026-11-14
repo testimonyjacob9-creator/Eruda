@@ -143,6 +143,22 @@ chk:'<path d="m5 12 5 5 9-10"/>',bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z
 moon:'<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',gift:'<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 13h18M12 8c-3 0-5-4-2-4s2 4 2 4zm0 0c3 0 5-4 2-4s-2 4-2 4z"/>',
 cp:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'}[n]}</svg>`;
 const mail=(type,data)=>{if(!user.email)return;try{fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,to:user.email,data})}).catch(()=>{})}catch(e){}};
+const VAPID_PUBLIC='BByPun49jVlrCt9DzD8AgpciOwwey-BS9ZgHFoyweUGpWvsLv6AP-gHeMu_EWnlJ0rHmxvH_fIiE5JcmnQE06lM';
+const H={'Content-Type':'application/json'};let inbox=[];
+const api=(p,o)=>fetch('/api/'+p,o).then(r=>r.json()).catch(()=>null);
+const seen=()=>{try{return +localStorage.getItem('eep_seen')||0}catch(e){return 0}};
+const unread=()=>inbox.filter(x=>x.ts>seen()).length;
+async function loadInbox(){const r=await api('inbox');if(r&&r.items){const n=r.items.length;inbox=r.items;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
+setInterval(()=>{if(user.id)loadInbox()},60000);
+const u8=k=>{const b=atob((k+'='.repeat((4-k.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
+async function enablePush(){try{if(!('serviceWorker' in navigator)||!('PushManager' in window))return toast('Push is not supported on this browser');
+if(await Notification.requestPermission()!=='granted')return toast('Notifications are blocked');
+const reg=await navigator.serviceWorker.ready;const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(VAPID_PUBLIC)});
+await api('push-sub',{method:'POST',headers:H,body:JSON.stringify({sub,uid:user.id})});toast('Notifications enabled')}catch(e){toast('Could not enable notifications')}}
+function showInbox(){try{localStorage.setItem('eep_seen',String(Date.now()))}catch(e){}
+const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const o=pop(`<h3>Messages</h3>${inbox.map(x=>`<div class="tx" style="margin:0 0 10px;align-items:flex-start"><i>${ic('bell')}</i><div><b>${esc(x.title)}</b><small style="display:block;white-space:pre-wrap;margin-top:2px">${esc(x.message)}</small><small>${new Date(x.ts).toLocaleDateString('en-NG',{day:'numeric',month:'short'})}</small></div></div>`).join('')||'<p style="color:var(--mut);font-size:13px;margin-bottom:14px">No messages yet.</p>'}<button class="btn" id="ep" style="margin-top:6px">Turn on push notifications</button>`);
+o.querySelector('#ep').onclick=enablePush;render()}
 const $=s=>document.querySelector(s),N=n=>'₦'+n.toLocaleString('en-NG');
 let mode='login',user={name:'Testimony'},bal=25400,tab='home',tx=[
 {t:'MTN Airtime',s:'0803 *** 4421',a:-500,d:'Today, 9:41 AM',i:'airtime'},
@@ -168,12 +184,12 @@ if(id.length<5)return $('#err').textContent='Enter a valid phone number or email
 if(pw.length<6)return $('#err').textContent='Password must be at least 6 characters.';
 if(mode=='signup'){const em=$('#em').value.trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))return $('#err').textContent='Enter a valid email address.';user.name=$('#name').value.trim().split(' ')[0];user.email=em}
 else if(id.includes('@'))user.email=id;
-$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();if(mode=='signup')mail('welcome',{name:user.name})},700)};
+$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();user.id=(user.email||id).toLowerCase();if(mode=='signup')mail('welcome',{name:user.name});api('register',{method:'POST',headers:H,body:JSON.stringify({id:user.id,name:user.name,email:user.email||''})});loadInbox()},700)};
 /* render */
 const txH=a=>a.map(x=>`<div class="tx"><i>${ic(x.i)}</i><div><b>${x.t}</b><small>${x.s} · ${x.d}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
 function render(){
 const v=$('#v');
-if(tab=='home')v.innerHTML=`<div class="top"><div class="who"><div class="av">${user.name[0].toUpperCase()}</div><div><small>Good day 👋</small><b>${user.name}</b></div></div><div style="display:flex;gap:8px"><button class="ib" id="th">${ic('moon',20)}</button><button class="ib">${ic('bell',20)}</button></div></div>
+if(tab=='home')v.innerHTML=`<div class="top"><div class="who"><div class="av">${user.name[0].toUpperCase()}</div><div><small>Good day 👋</small><b>${user.name}</b></div></div><div style="display:flex;gap:8px"><button class="ib" id="th">${ic('moon',20)}</button><button class="ib" id="bl" style="position:relative">${ic('bell',20)}${unread()?`<b style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center">${unread()}</b>`:''}</button></div></div>
 <div class="wal"><small>Wallet balance</small><h2>${N(bal)}</h2><div class="bt"><button class="w" data-s="fund">+ Fund wallet</button><button data-s="airtime">Quick airtime</button></div></div>
 <div class="sec"><b>Services</b></div>
 <div class="grid">${[['airtime','Airtime'],['data','Data'],['power','Electricity'],['tv','Cable TV'],['exam','Exam Pins'],['fund','Fund Wallet']].map(a=>`<div class="svc" data-s="${a[0]}"><i>${ic(a[0])}</i>${a[1]}</div>`).join('')}</div>
@@ -187,6 +203,7 @@ $('#nav').innerHTML=[['home','Home'],['hist','History'],['user','Profile']].map(
 document.addEventListener('click',e=>{
 const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
 const s=e.target.closest('[data-s]');if(s){openS(s.dataset.s);return}
+if(e.target.closest('#bl')){showInbox();return}
 if(e.target.closest('#th')){const r=document.documentElement;r.dataset.theme=(r.dataset.theme=='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'}
 if(e.target.closest('#lo')){$('#app').classList.add('hide');$('#auth').classList.remove('hide');$('#go').textContent=mode=='signup'?'Create account':'Log in';$('#pw').value='';tab='home'}
 });
@@ -211,7 +228,7 @@ let a,pl='';if(pf){if(sel.plan==null)return E('Please choose a package.');a=pf[2
 if(a>bal)return E('Insufficient balance. Please fund your wallet.');
 const net=nf[2][sel.net],who=ph?ph.value:'—';
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div style="text-align:center;padding:30px 0"><div class="chip on" style="display:inline-block">Processing…</div></div>`;
-setTimeout(()=>{bal-=a;tx.unshift({t:`${net} ${pl||c.t.replace('Buy ','')}`,s:who,a:-a,d:'Just now',i:k});render();mail('receipt',{service:`${net} ${pl||c.t.replace('Buy ','')}`,recipient:who,amount:a,ref:'EEP'+Date.now().toString(36).toUpperCase()});
+setTimeout(()=>{bal-=a;tx.unshift({t:`${net} ${pl||c.t.replace('Buy ','')}`,s:who,a:-a,d:'Just now',i:k});render();const rf='EEP'+Date.now().toString(36).toUpperCase(),sv=`${net} ${pl||c.t.replace('Buy ','')}`;api('track',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,service:sv,recipient:who,amount:a,ref:rf})});mail('receipt',{service:`${net} ${pl||c.t.replace('Buy ','')}`,recipient:who,amount:a,ref:rf});
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><div class="c">${ic('chk')}</div><h3 style="margin:0">Payment successful</h3><p style="color:var(--mut);font-size:13px;margin-top:6px">Your transaction was completed instantly.</p>
 <div class="rc"><p><span>Service</span><b>${net} ${pl||c.t.replace('Buy ','')}</b></p><p><span>Recipient</span><b>${who}</b></p><p><span>Amount</span><b>${N(a)}</b></p><p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dn">Done</button></div>`;
 o.querySelector('#dn').onclick=()=>o.remove()},1100)}}

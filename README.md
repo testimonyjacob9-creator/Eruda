@@ -18,3 +18,9 @@ Add these in Netlify → Site configuration → Environment variables, then rede
 - `ALLOWED_ORIGIN`: optional, your site URL(s) to block other origins
 
 The key never reaches the browser; the app calls `/api/email`, which runs `netlify/functions/send-email.js`.
+
+## Admin panel
+Open `/admin` on your site and sign in with `ADMIN_PASSWORD`. Dashboard, users, transactions, broadcast (in-app + email + push), message history and setup status. Data is stored in Netlify Blobs.
+
+## Web push (VAPID)
+The public key is hardcoded in `index.html` and `netlify/functions/api.mjs`. Add the matching private key as `VAPID_PRIVATE_KEY` in Netlify. Never commit the private key.
