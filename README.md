@@ -36,3 +36,6 @@ Add `PAYSTACK_SECRET_KEY` in Netlify. In Paystack → Settings → API Keys & We
 
 ## Transaction PIN
 Users create a 4-digit PIN at sign-up (or on their first purchase if they signed up earlier) and enter it on a keypad to approve every purchase. PINs are stored hashed (scrypt), 5 wrong attempts lock the PIN for 15 minutes, and users can change it under Profile → Transaction PIN. Admin → Users → **Reset PIN** clears a forgotten PIN.
+
+## Smart assistant
+Chat button in the app (bottom-right). Powered by Claude through `/api/chat` using `ANTHROPIC_API_KEY` (optional `CHAT_MODEL`). It knows your live prices, service status and the user's balance, can't move money, and hands off to WhatsApp (`SUPPORT_WHATSAPP`) when it can't help. Without the key it falls back to a basic FAQ.

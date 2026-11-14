@@ -69,6 +69,14 @@ async function checkPin(uid, usr, pin) {
   await put('users', hash(uid), { ...usr, pinFails: fails >= 5 ? 0 : fails, pinLock: fails >= 5 ? Date.now() + 15 * 60000 : 0 });
   return { status: 401, error: fails >= 5 ? 'Too many wrong attempts. PIN locked for 15 minutes.' : `Wrong PIN. ${5 - fails} attempt(s) left.` };
 }
+const chatHits = new Map();
+const faq = (q, P, w, wa) => {
+  q = q.toLowerCase(); const N = n => '₦' + Number(n).toLocaleString('en-NG');
+  if (/balance|wallet/.test(q) && w) return { reply: `Your wallet balance is ${N(w.balance)}.` };
+  if (/data|plan|price/.test(q)) return { reply: 'Current data plans:\n' + P.plans.data.map(x => `${x.label}: ${N(x.price)}`).join('\n') };
+  if (/fund|deposit|add money/.test(q)) return { reply: 'Tap Fund wallet on the home screen, enter an amount and pay with Paystack (card, transfer or USSD). Your wallet is credited right after payment.' };
+  return { reply: 'I’m not sure about that one. Please contact our support team and include your transaction reference.', human: true, whatsapp: wa };
+};
 const PS = 'https://api.paystack.co';
 const ps = (path, o = {}) => fetch(PS + path, { ...o, headers: { Authorization: 'Bearer ' + E.PAYSTACK_SECRET_KEY, 'Content-Type': 'application/json' } }).then(r => r.json());
 // wallet = sum of ledger entries (one key per entry, so crediting twice is harmless)
@@ -129,6 +137,26 @@ export default async req => {
       await put('ledger', hash(uid) + '/' + ref, { amount: -charge, type: 'purchase', svc, title, sub: recipient, ref, ts: Date.now() });
       await put('txs', hash(ref), { uid, service: title, recipient, amount: charge, ref, ts: Date.now() });
       return J({ ok: true, balance: bal - charge, charge, title });
+    }
+    if (p === 'chat' && m === 'POST') {
+      const uid = clip(b.uid, 120).toLowerCase(), key = req.headers.get('x-nf-client-connection-ip') || uid, now = Date.now();
+      const hits = (chatHits.get(key) || []).filter(t => now - t < 600000); if (hits.length >= 20) return J({ reply: 'You are sending messages too fast. Please wait a few minutes.' }, 429);
+      chatHits.set(key, [...hits, now]);
+      const ms = (Array.isArray(b.messages) ? b.messages : []).slice(-10).filter(x => ['user', 'assistant'].includes(x?.role) && typeof x.content === 'string').map(x => ({ role: x.role, content: clip(x.content, 500) }));
+      while (ms.length && ms[0].role !== 'user') ms.shift();
+      if (!ms.length || ms[ms.length - 1].role !== 'user') return J({ error: 'Invalid' }, 400);
+      const P = await getPricing(), w = uid.length >= 5 ? await history(uid) : null, wa = E.SUPPORT_WHATSAPP || '';
+      if (!E.ANTHROPIC_API_KEY) return J(faq(ms[ms.length - 1].content, P, w, wa));
+      const money = n => '₦' + Number(n).toLocaleString('en-NG');
+      const system = `You are Erudite, the friendly support assistant for Erudite Easy Pay, a Nigerian VTU platform (airtime, data, electricity, cable TV, exam pins). Reply in short, clear sentences (max 5), in simple English, using ₦ for money. Use ONLY the facts below; if you do not know, say so and add the marker [[HUMAN]] at the end so the user is offered human support.
+Rules: you cannot buy anything, change balances, confirm or reverse payments, or reset PINs or passwords. Never ask for a PIN, password or card number; if the user shares one, tell them to keep it private. For failed, pending or missing transactions or payments, tell the user to note the reference and add [[HUMAN]]. Funding is done with Paystack from the home screen (Fund wallet). Purchases need the user's 4-digit transaction PIN, which can be changed in Profile. Forgotten PIN: contact support ([[HUMAN]]).
+Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.data.map(x => `${x.label} ${money(x.price)}`).join('; ')}. Cable TV: ${P.plans.tv.map(x => `${x.label} ${money(x.price)}`).join('; ')}. Exam pins: ${P.plans.exam.map(x => `${x.label} ${money(x.price)}`).join('; ')}. Services currently switched off: ${Object.keys(P.off || {}).filter(k => P.off[k]).join(', ') || 'none'}.${w ? ` This user's wallet balance: ${money(w.balance)}. Their latest activity: ${w.items.slice(0, 5).map(x => `${x.title} ${x.amount > 0 ? '+' : '-'}${money(Math.abs(x.amount))}`).join('; ') || 'none'}.` : ''}`;
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': E.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: E.CHAT_MODEL || 'claude-haiku-5-5', max_tokens: 400, system, messages: ms }) });
+        const d = await r.json(), t = d?.content?.find(x => x.type === 'text')?.text;
+        if (!r.ok || !t) return J(faq(ms[ms.length - 1].content, P, w, wa));
+        return J({ reply: t.replace('[[HUMAN]]', '').trim(), human: t.includes('[[HUMAN]]'), whatsapp: wa });
+      } catch { return J(faq(ms[ms.length - 1].content, P, w, wa)); }
     }
     if (p === 'pin/status' && m === 'GET') { const usr = await getStore('users').get(hash(clip(u.searchParams.get('uid'), 120).toLowerCase()), { type: 'json' }); return J({ has: !!usr?.pin }); }
     if (p === 'pin/set' && m === 'POST') {
@@ -191,7 +219,7 @@ export default async req => {
       const [users, subs, txs, bcs, pays] = await Promise.all([all('users'), all('subs'), all('txs'), all('bcs'), all('pay')]);
       const paid = pays.filter(x => x.status === 'success');
       const series = [...Array(7)].map((_, i) => { const d = new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10); const t = txs.filter(x => new Date(x.ts).toISOString().slice(0, 10) === d); return { d, sales: t.reduce((s, x) => s + x.amount, 0), count: t.length }; });
-      return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.reduce((s, x) => s + x.amount, 0), funded: paid.reduce((s, x) => s + x.amount, 0), fundCount: paid.length, series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, paystack: !!E.PAYSTACK_SECRET_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
+      return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.reduce((s, x) => s + x.amount, 0), funded: paid.reduce((s, x) => s + x.amount, 0), fundCount: paid.length, series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, paystack: !!E.PAYSTACK_SECRET_KEY, chat: !!E.ANTHROPIC_API_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
     }
     if (route === 'users' && m === 'GET') return J({ items: (await all('users')).sort((a, c) => c.joined - a.joined).map(({ pin, pinFails, pinLock, ...x }) => ({ ...x, hasPin: !!pin })) });
     if (route === 'users' && m === 'DELETE') { const id = clip(u.searchParams.get('id'), 120); await getStore('users').delete(hash(id)); return J({ ok: true }); }
@@ -242,4 +270,4 @@ export default async req => {
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };

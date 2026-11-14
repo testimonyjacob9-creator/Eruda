@@ -76,6 +76,7 @@ svg{width:22px;height:22px;display:block}
 .nav button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:700;color:var(--mut);cursor:pointer;padding:6px}
 .nav button.on{color:var(--blue)}.nav svg{width:22px;height:22px}
 .pad{height:96px}
+.fab{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom,0px));width:54px;height:54px;border-radius:50%;border:0;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:grid;place-items:center;box-shadow:0 10px 24px rgba(29,78,216,.45);cursor:pointer;z-index:6}
 .pf{margin:16px;background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden}
 .pf button{width:100%;display:flex;justify-content:space-between;align-items:center;padding:16px;border:0;border-bottom:1px solid var(--line);background:none;font-weight:600;font-size:14px;cursor:pointer;text-align:left}
 .pf button:last-child{border:0;color:#dc2626}
@@ -126,6 +127,7 @@ svg{width:22px;height:22px;display:block}
 <!-- APP -->
 <section id="app" class="hide">
   <div id="v"></div>
+  <button class="fab" id="chatfab" aria-label="Chat with assistant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8.5 10h7"/></svg></button>
   <nav class="nav" id="nav"></nav>
 </section>
 </div>
@@ -145,7 +147,7 @@ moon:'<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',gift:'<rect x="3" y="8
 cp:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/>'}[n]}</svg>`;
 const mail=(type,data)=>{if(!user.email)return;try{fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,to:user.email,data})}).catch(()=>{})}catch(e){}};
 const VAPID_PUBLIC='BByPun49jVlrCt9DzD8AgpciOwwey-BS9ZgHFoyweUGpWvsLv6AP-gHeMu_EWnlJ0rHmxvH_fIiE5JcmnQE06lM';
-const H={'Content-Type':'application/json'};let inbox=[],PRICING=null,hasPin=false;
+const H={'Content-Type':'application/json'};let inbox=[],PRICING=null,hasPin=false,chat=[];
 const api=(p,o)=>fetch('/api/'+p,o).then(r=>r.json()).catch(()=>null);
 const seen=()=>{try{return +localStorage.getItem('eep_seen')||0}catch(e){return 0}};
 const unread=()=>inbox.filter(x=>x.ts>seen()).length;
@@ -161,6 +163,16 @@ async function setupPin(){const a=await askPin('Create your PIN','Choose a 4-dig
 const r=await api('pin/set',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,pin:a})});if(r&&r.ok){hasPin=true;toast('Transaction PIN set');return true}toast(r&&r.error||'Could not set PIN');return setupPin()}
 async function changePin(){if(!hasPin){await setupPin();return rmOv()}const old=await askPin('Current PIN','Enter your current PIN');if(!old)return;const a=await askPin('New PIN','Choose a new 4-digit PIN');if(!a)return;const b=await askPin('Confirm new PIN','Enter it again');if(!b)return;
 if(a!==b){rmOv();return toast('PINs did not match')}const r=await api('pin/set',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,pin:a,old})});rmOv();toast(r&&r.ok?'PIN changed':(r&&r.error||'Could not change PIN'))}
+function openChat(){const o=pop(`<h3>Erudite Assistant</h3><div id="cm" style="height:44vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div><div class="chips" id="cq" style="margin-bottom:10px">${['Data prices','My balance','Payment issue','How to fund'].map(x=>`<button class="chip">${x}</button>`).join('')}</div><div class="inp"><input id="ci" placeholder="Type your question…" maxlength="500"><button id="cs">Send</button></div>`);
+const box=o.querySelector('#cm'),bub=(t,me)=>{const d=document.createElement('div');d.style.cssText='max-width:85%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;word-break:break-word;'+(me?'align-self:flex-end;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff':'align-self:flex-start;background:var(--soft);color:var(--tx)');d.innerHTML=X(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');box.appendChild(d);box.scrollTop=box.scrollHeight;return d};
+if(!chat.length)chat.push({role:'assistant',content:`Hi ${user.name}! I’m Erudite, your assistant. Ask me about prices, funding your wallet, or any payment issue.`});
+chat.forEach(m=>bub(m.content,m.role=='user'));
+const send=async t=>{t=t.trim();if(!t)return;o.querySelector('#ci').value='';chat.push({role:'user',content:t});bub(t,true);const w=bub('…');
+const r=await api('chat',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,messages:chat.slice(-10)})});
+const rp=r&&r.reply||'Sorry, I could not reach support right now. Please try again.';chat.push({role:'assistant',content:rp});w.remove();bub(rp);
+if(r&&r.human&&r.whatsapp){const a=document.createElement('a');a.href='https://wa.me/'+String(r.whatsapp).replace(/\D/g,'')+'?text='+encodeURIComponent('Hello Erudite Easy Pay support, I need help ('+user.id+')');a.target='_blank';a.rel='noopener';a.className='btn';a.style.cssText='display:block;text-align:center;text-decoration:none;align-self:flex-start;width:auto;padding:10px 16px';a.textContent='Chat with support on WhatsApp';box.appendChild(a);box.scrollTop=box.scrollHeight}};
+o.querySelector('#cs').onclick=()=>send(o.querySelector('#ci').value);o.querySelector('#ci').onkeydown=e=>{if(e.key=='Enter')send(e.target.value)};
+o.querySelectorAll('#cq .chip').forEach(b=>b.onclick=()=>send(b.textContent))}
 async function loadPricing(){const P=await api('pricing');if(!P||!P.plans)return;PRICING=P;const m=a=>a.map(x=>[x.label,x.price]);SV.data.f[2][2]=m(P.plans.data);SV.tv.f[2][2]=m(P.plans.tv);SV.exam.f[1][2]=m(P.plans.exam)}
 function showReceipt(t){if(!t)return;const o=pop(`<div class="ok"><h3 style="margin:0 0 4px">${X(t.t)}</h3><p style="color:var(--mut);font-size:13px">${fd(t.ts)}</p><div class="rc"><p><span>${t.a>0?'Credited':'Amount'}</span><b>${N(Math.abs(t.a))}</b></p><p><span>Details</span><b>${X(t.s)||'—'}</b></p>${t.ref?`<p><span>Reference</span><b>${X(t.ref)}</b></p>`:''}<p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dl">Download receipt</button></div>`);
 o.querySelector('#dl').onclick=()=>{const c=document.createElement('canvas');c.width=600;c.height=720;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,600,720);const gr=g.createLinearGradient(0,0,600,0);gr.addColorStop(0,'#0a2380');gr.addColorStop(1,'#2f6bff');g.fillStyle=gr;g.fillRect(0,0,600,120);g.fillStyle='#fff';g.font='bold 28px sans-serif';g.fillText('ERUDITE EASY PAY',40,72);
@@ -223,6 +235,7 @@ document.addEventListener('click',e=>{
 const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();return}
 const s=e.target.closest('[data-s]');if(s){openS(s.dataset.s);return}
 if(e.target.closest('#bl')){showInbox();return}
+if(e.target.closest('#chatfab')){openChat();return}
 if(e.target.closest('#cpn')){changePin();return}
 const rr=e.target.closest('.tx[data-r]');if(rr){showReceipt(tx[+rr.dataset.r]);return}
 if(e.target.closest('#th')){const r=document.documentElement;r.dataset.theme=(r.dataset.theme=='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'}
