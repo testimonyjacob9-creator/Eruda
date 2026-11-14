@@ -84,7 +84,7 @@ async function sendEmails(list, title, message) {
       const r = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'api-key': E.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ sender: { name: E.SENDER_NAME || 'Erudite Easy Pay', email: E.SENDER_EMAIL }, replyTo: { email: E.REPLY_TO || E.SENDER_EMAIL }, subject: title, htmlContent: html, textContent: toText(html), messageVersions: chunk.map(email => ({ to: [{ email }] })) })
+        body: JSON.stringify({ sender: { name: E.SENDER_NAME || 'Erudite Easy Pay', email: E.SENDER_EMAIL }, replyTo: { email: E.REPLY_TO || E.SENDER_EMAIL }, headers: { 'List-Unsubscribe': `<mailto:${E.REPLY_TO || E.SENDER_EMAIL}?subject=unsubscribe>` }, subject: title, htmlContent: html, textContent: toText(html), messageVersions: chunk.map(email => ({ to: [{ email }] })) })
       });
       r.ok ? (sent += chunk.length) : (failed += chunk.length);
     } catch { failed += chunk.length; }
@@ -128,11 +128,11 @@ const faq = (q, P, w, wa) => {
 const PS = 'https://api.paystack.co';
 const ps = (path, o = {}) => fetch(PS + path, { ...o, headers: { Authorization: 'Bearer ' + E.PAYSTACK_SECRET_KEY, 'Content-Type': 'application/json' } }).then(r => r.json());
 // wallet = sum of ledger entries (one key per entry, so crediting twice is harmless)
-const DEFAULT_PRICING = { airtimeDiscount: 2, off: {}, plans: {
+const DEFAULT_PRICING = { airtimeDiscount: 2, markup: { data: 20, tv: 50, exam: 100 }, elecFeePct: 5, off: {}, plans: {
   data: [['500MB · 7 days', 150], ['1GB · 30 days', 280], ['2GB · 30 days', 560], ['5GB · 30 days', 1350], ['10GB · 30 days', 2600]].map(([label, price]) => ({ label, price })),
   tv: [['Basic', 2100], ['Compact', 9000], ['Premium', 29500]].map(([label, price]) => ({ label, price })),
   exam: [['Result checker', 3500], ['Registration pin', 4700]].map(([label, price]) => ({ label, price })) } };
-const getPricing = async () => ({ ...DEFAULT_PRICING, ...((await getStore('config').get('pricing', { type: 'json' })) || {}) });
+const getPricing = async () => { const c = (await getStore('config').get('pricing', { type: 'json' })) || {}; return { ...DEFAULT_PRICING, ...c, markup: { ...DEFAULT_PRICING.markup, ...(c.markup || {}) } }; };
 const history = async uid => { const s = getStore('ledger'); const { blobs } = await s.list({ prefix: hash(uid) + '/' }); const v = (await Promise.all(blobs.map(x => s.get(x.key, { type: 'json' })))).filter(Boolean).sort((a, c) => c.ts - a.ts); return { balance: v.reduce((t, x) => t + (x.amount || 0), 0), items: v.slice(0, 100) }; };
 const balanceOf = async uid => (await history(uid)).balance;
 async function credit(ref) {
@@ -146,6 +146,68 @@ async function credit(ref) {
   await put('pay', hash(ref), { ...rec, status: 'success', paidAt: Date.now() });
   return { ok: true, amount: rec.amount };
 }
+
+/* ---------- WoodPay reseller API — only the key is secret: set WOODPAY_API_KEY in Netlify ---------- */
+const WP_BASE = 'https://woodpay.com.ng/api/v1/';
+const wpCall = async (action, { method = 'GET', query = {}, body, ms = 9500 } = {}) => {
+  if (!E.WOODPAY_API_KEY) return { ok: false, status: 503, d: { error: 'not configured' }, none: true };
+  const qs = new URLSearchParams(query).toString(), c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(WP_BASE + action + (qs ? '?' + qs : ''), { method, signal: c.signal, headers: { 'x-api-key': E.WOODPAY_API_KEY, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    let d = {}; try { d = await r.json(); } catch {}
+    return { ok: r.ok, status: r.status, d };
+  } catch { return { ok: false, status: 0, d: {}, timeout: true }; } finally { clearTimeout(t); }
+};
+// success | failed | pending. Unknown outcomes stay pending (never refund something that may have been delivered).
+const wpOutcome = r => {
+  const d = r.d || {};
+  if (d.ok === true && d.status === 'success') return 'success';
+  if (d.status === 'pending' || r.status === 202) return 'pending';
+  if (d.status === 'failed' || (d.ok === false && ((r.status >= 400 && r.status < 500) || r.status === 503))) return 'failed';
+  if (d.ok === true && d.duplicate && d.status) return d.status === 'failed' ? 'failed' : d.status === 'success' ? 'success' : 'pending';
+  return 'pending';
+};
+const NETS = ['mtn', 'glo', 'airtel', '9mobile'], TVS = ['dstv', 'gotv', 'startimes', 'showmax'], EXAMS = ['waec', 'neco', 'nabteb'];
+const PHONE = /^0[789][01]\d{8}$/;
+const netKey = (svc, net) => svc === 'power' ? ((String(net).match(/\(([^)]+)\)/) || [])[1] || net).toLowerCase() : String(net).toLowerCase();
+// Plans as Erudite sells them: WoodPay price + your markup (Admin → Pricing)
+async function wpPlans(svc, net) {
+  const P = await getPricing(), mk = P.markup || {};
+  if (svc === 'data') {
+    const r = await wpCall('plans', { query: { network: net } }); if (!r.ok || !Array.isArray(r.d.plans)) return null;
+    return r.d.plans.map(x => ({ id: x.plan_id, label: `${x.size} · ${x.validity}`, size: x.size, validity: x.validity, category: x.category, type: x.type, price: Math.round(x.price + (+mk.data || 0)) }));
+  }
+  if (svc === 'tv') {
+    const r = await wpCall('cable_plans', { query: { provider: net } }); if (!r.ok || !Array.isArray(r.d.plans)) return null;
+    return r.d.plans.map(x => ({ id: x.plan_id, label: x.name, price: Math.round(x.price + (+mk.tv || 0)) }));
+  }
+  if (svc === 'exam') {
+    const r = await wpCall('exam_plans'); if (!r.ok || !Array.isArray(r.d.plans)) return null;
+    return r.d.plans.filter(x => x.exam === net).map(x => ({ id: x.exam, label: x.name, price: Math.round(x.price + (+mk.exam || 0)) }));
+  }
+  return null;
+}
+// Live delivery rate: last 5 settled orders per service+network (20% each); admin value is the fallback until 5 exist
+async function netstat(svc, net, res) {
+  if (!svc || !net) return; const st = getStore('netstat'), k = svc + '_' + net;
+  const a = (await st.get(k, { type: 'json' }).catch(() => null)) || []; a.unshift(res); await st.setJSON(k, a.slice(0, 5));
+}
+// Settle a pending order exactly once: success keeps the debit, failed refunds it
+async function settle(uid, ref, status, extra = {}, reason = '') {
+  const lk = hash(uid) + '/' + ref, led = await getStore('ledger').get(lk, { type: 'json' });
+  if (!led || led.status !== 'pending') return led;
+  const tx = (await getStore('txs').get(hash(ref), { type: 'json' })) || {};
+  if (status === 'success') {
+    const ex = { ...(extra.token ? { token: extra.token } : {}), ...(extra.units ? { units: extra.units } : {}), ...(extra.pins ? { pins: extra.pins } : {}) };
+    await put('ledger', lk, { ...led, status: 'success', ...ex }); await put('txs', hash(ref), { ...tx, status: 'success', ...ex });
+    await netstat(led.svc, led.net, 'success'); return { ...led, status: 'success', ...ex };
+  }
+  await put('ledger', hash(uid) + '/R' + ref, { amount: -led.amount, type: 'refund', title: 'Refund · ' + led.title, sub: led.sub, ref, ts: Date.now() });
+  await put('ledger', lk, { ...led, status: 'failed' }); await put('txs', hash(ref), { ...tx, status: 'failed', refunded: true, reason: clip(reason, 200) });
+  await netstat(led.svc, led.net, 'failed'); return { ...led, status: 'failed' };
+}
+const seenIp = new Map();
+const limited = (req, n = 40) => { const ip = req.headers.get('x-nf-client-connection-ip') || 'x', now = Date.now(), l = (seenIp.get(ip) || []).filter(t => now - t < 600000); if (l.length >= n) return true; seenIp.set(ip, [...l, now]); return false; };
 
 export default async req => {
   const u = new URL(req.url), p = u.pathname.replace(/^\/api\//, ''), m = req.method;
@@ -164,7 +226,7 @@ export default async req => {
       const em = clip(b.email, 120).toLowerCase(); if (!EMAIL.test(em)) return J({ error: 'Invalid email' }, 400);
       const link = await resetLink(em).catch(() => null);
       if (!link) return J({ ok: false, fallback: true });
-      await sendMail({ to: em, subject: 'Reset your Erudite Easy Pay password', html: wrap('Reset your password', `<p>We received a request to reset the password for your account. Tap the button below to choose a new one.</p><p style="margin:22px 0"><a href="${esc(link)}" style="background:#1d4ed8;color:#fff;text-decoration:none;padding:13px 22px;border-radius:12px;font-weight:bold;display:inline-block">Reset password</a></p><p style="color:#64748b;font-size:13px">If you didn’t ask for this, you can safely ignore this email — your password won’t change.</p>`) });
+      await sendMail({ to: em, subject: 'Reset your Erudite Easy Pay password', html: wrap('Reset your password', `<p>Hi, we received a request to reset the password on your Erudite Easy Pay account. Use the button below to choose a new password. The link works for a limited time.</p><p style="margin:22px 0"><a href="${esc(link)}" style="background:#1d4ed8;color:#fff;text-decoration:none;padding:13px 22px;border-radius:12px;font-weight:bold;display:inline-block">Reset password</a></p><p style="color:#64748b;font-size:13px">If you did not ask for this, you can ignore this email and your password will stay the same.</p><p style="color:#64748b;font-size:13px">Button not working? Copy this link into your browser:<br><span style="word-break:break-all">${esc(link)}</span></p>`) });
       return J({ ok: true });
     }
     if (p === 'pin/reset' && m === 'POST') {
@@ -183,27 +245,97 @@ export default async req => {
       await put('subs', hash(b.sub.endpoint), { sub: b.sub, uid: clip(b.uid, 120), ts: Date.now() });
       return J({ ok: true });
     }
+    if (p === 'wp/plans' && m === 'GET') {
+      const svc = clip(u.searchParams.get('svc'), 10), net = netKey(svc, clip(u.searchParams.get('net'), 60));
+      if (!['data', 'tv', 'exam'].includes(svc)) return J({ error: 'Invalid' }, 400);
+      const plans = await wpPlans(svc, net);
+      return plans ? J({ ok: true, plans }) : J({ error: 'Plans are unavailable right now. Please try again shortly.' }, 503);
+    }
+    if (p === 'wp/discos' && m === 'GET') {
+      const r = await wpCall('electricity_providers');
+      return r.ok && Array.isArray(r.d.providers) ? J({ ok: true, providers: r.d.providers }) : J({ error: 'Unavailable' }, 503);
+    }
+    if (p === 'wp/verify' && m === 'POST') {
+      if (limited(req, 30)) return J({ error: 'Too many requests' }, 429);
+      const svc = clip(b.svc, 10), num = clip(b.number, 20).trim();
+      const r = svc === 'tv' ? await wpCall('cable_verify', { method: 'POST', body: { provider: netKey('tv', clip(b.net, 40)), smartcard: num } })
+        : svc === 'power' ? await wpCall('electricity_verify', { method: 'POST', body: { disco: clip(b.net, 80), meter_number: num, meter_type: clip(b.meter_type, 10).toLowerCase() } }) : null;
+      if (!r) return J({ error: 'Invalid' }, 400);
+      return r.ok && r.d.customer_name ? J({ ok: true, name: clip(r.d.customer_name, 80) }) : J({ error: r.status === 400 && r.d.error ? r.d.error : 'Could not verify. Check the number and try again.' }, 400);
+    }
+    if (p === 'network-status' && m === 'GET') {
+      const svc = clip(u.searchParams.get('svc'), 10), net = netKey(svc, clip(u.searchParams.get('net'), 80));
+      const a = (await getStore('netstat').get(svc + '_' + net, { type: 'json' }).catch(() => null)) || [];
+      if (a.length >= 5) return J({ ok: true, pct: a.filter(x => x === 'success').length * 20, source: 'live' });
+      const cfg = (await getStore('config').get('netrates', { type: 'json' }).catch(() => null)) || {}, v = cfg[net]?.[svc];
+      return J(v === undefined || v === null || v === '' ? { ok: true, pct: null } : { ok: true, pct: Math.max(0, Math.min(100, Math.round(+v))), source: 'admin' });
+    }
+    if (p === 'order-status' && m === 'GET') {
+      const uid = clip(u.searchParams.get('uid'), 120).toLowerCase(), ref = clip(u.searchParams.get('ref'), 30).replace(/[^A-Za-z0-9]/g, '');
+      let led = await getStore('ledger').get(hash(uid) + '/' + ref, { type: 'json' }); if (!led) return J({ error: 'Not found' }, 404);
+      if (led.status === 'pending') {
+        const r = await wpCall('order', { query: { reference: ref } }), st = r.d?.status;
+        if (r.ok && st === 'success') led = await settle(uid, ref, 'success', r.d);
+        else if (r.ok && st === 'failed') led = await settle(uid, ref, 'failed', {}, r.d.reason);
+        else if (r.status === 404 && Date.now() - led.ts > 120000) led = await settle(uid, ref, 'failed', {}, 'Order was not received by the provider');
+      }
+      return J({ ok: true, status: led.status || 'success', token: led.token || null, pins: led.pins || null, units: led.units || null, balance: await balanceOf(uid) });
+    }
     if (p === 'track' && m === 'POST') {
       const uid = clip(b.uid, 120).toLowerCase(), ref = clip(b.ref, 30).replace(/[^A-Za-z0-9]/g, ''), svc = clip(b.svc, 20);
-      if (uid.length < 5 || !ref) return J({ error: 'Invalid' }, 400);
+      if (uid.length < 5 || ref.length < 8) return J({ error: 'Invalid' }, 400);
+      if (!['airtime', 'data', 'tv', 'power', 'exam'].includes(svc)) return J({ error: 'Invalid' }, 400);
+      const prior = await getStore('ledger').get(hash(uid) + '/' + ref, { type: 'json' });
+      if (prior) return J({ ok: true, duplicate: true, status: prior.status || 'success', balance: await balanceOf(uid), charge: -prior.amount, title: prior.title });
       const usr = await getStore('users').get(hash(uid), { type: 'json' });
       if (usr?.suspended) return J({ error: 'Your account is suspended. Please contact support.' }, 403);
       const bad = await checkPin(uid, usr, b.pin); if (bad) return J({ error: bad.error, code: bad.code }, bad.status);
       const P = await getPricing();
       if (P.off?.[svc]) return J({ error: 'This service is temporarily unavailable.' }, 503);
-      let charge, label = clip(b.label, 80);
-      if (P.plans[svc]) { const pl = P.plans[svc].find(x => x.label === label); if (!pl) return J({ error: 'That plan is no longer available. Please reselect.' }, 400); charge = pl.price; }
-      else {
-        const face = Number(b.amount);
-        if (!['airtime', 'power'].includes(svc) || !(face >= 100 && face <= 1e6)) return J({ error: 'Invalid' }, 400);
-        charge = svc === 'airtime' ? Math.round(face * (1 - (P.airtimeDiscount || 0) / 100)) : face;
+      if (!E.WOODPAY_API_KEY) return J({ error: 'This service is being set up. Please try again soon.' }, 503);
+      const net = netKey(svc, clip(b.net, 80)), recipient = clip(b.recipient, 20).trim(), phone = clip(b.phone, 15).trim();
+      let charge, title, path, body;
+      if (svc === 'airtime') {
+        const face = Math.round(Number(b.amount));
+        if (!NETS.includes(net) || !PHONE.test(recipient) || !(face >= 50 && face <= 50000)) return J({ error: 'Check the network, phone number and amount (₦50 – ₦50,000).' }, 400);
+        charge = Math.round(face * (1 - (P.airtimeDiscount || 0) / 100)); title = `${net.toUpperCase()} ₦${face} Airtime`;
+        path = 'airtime'; body = { network: net, phone: recipient, amount: face, reference: ref };
+      } else if (svc === 'data') {
+        if (!NETS.includes(net) || !PHONE.test(recipient)) return J({ error: 'Check the network and phone number.' }, 400);
+        const pl = (await wpPlans('data', net) || []).find(x => x.id === clip(b.plan_id, 40)); if (!pl) return J({ error: 'That plan is no longer available. Please reselect.' }, 400);
+        charge = pl.price; title = `${net.toUpperCase()} ${pl.label}`; path = 'data'; body = { network: net, plan_id: pl.id, phone: recipient, reference: ref };
+      } else if (svc === 'tv') {
+        if (!TVS.includes(net) || !/^\d{5,15}$/.test(recipient) || !PHONE.test(phone)) return J({ error: 'Check the provider, smartcard number and phone number.' }, 400);
+        const pl = (await wpPlans('tv', net) || []).find(x => x.id === clip(b.plan_id, 60)); if (!pl) return J({ error: 'That package is no longer available. Please reselect.' }, 400);
+        charge = pl.price; title = `${net.toUpperCase()} ${pl.label}`; path = 'cable'; body = { provider: net, smartcard: recipient, plan_id: pl.id, phone, reference: ref };
+      } else if (svc === 'power') {
+        const face = Math.round(Number(b.amount)), mt = clip(b.meter_type, 10).toLowerCase(), disco = clip(b.net, 80);
+        if (!/^\d{6,15}$/.test(recipient) || !PHONE.test(phone) || !['prepaid', 'postpaid'].includes(mt) || !(face >= 500 && face <= 100000) || !disco) return J({ error: 'Check the meter number, meter type, phone number and amount (₦500 – ₦100,000).' }, 400);
+        charge = Math.ceil(face * (1 + (+P.elecFeePct || 0) / 100)); title = `${net.toUpperCase()} ₦${face} Electricity`;
+        path = 'electricity'; body = { disco, meter_number: recipient, meter_type: mt, amount: face, phone, reference: ref };
+      } else {
+        if (!EXAMS.includes(net)) return J({ error: 'Invalid exam.' }, 400);
+        const pl = (await wpPlans('exam', net) || [])[0]; if (!pl) return J({ error: 'That pin is unavailable right now.' }, 400);
+        charge = pl.price; title = pl.label; path = 'exam'; body = { exam: net, quantity: 1, reference: ref };
       }
       const bal = await balanceOf(uid);
       if (charge > bal) return J({ error: 'Insufficient balance. Please fund your wallet.', balance: bal }, 402);
-      const title = clip(b.title, 80) || label, recipient = clip(b.recipient, 40);
-      await put('ledger', hash(uid) + '/' + ref, { amount: -charge, type: 'purchase', svc, title, sub: recipient, ref, ts: Date.now() });
-      await put('txs', hash(ref), { uid, service: title, recipient, amount: charge, ref, ts: Date.now() });
-      return J({ ok: true, balance: bal - charge, charge, title });
+      const sub = svc === 'exam' ? '' : recipient;
+      await put('ledger', hash(uid) + '/' + ref, { amount: -charge, type: 'purchase', svc, net, title, sub, ref, ts: Date.now(), status: 'pending' });
+      await put('txs', hash(ref), { uid, service: title, recipient: sub, amount: charge, ref, ts: Date.now(), svc, net, status: 'pending' });
+      const r = await wpCall(path, { method: 'POST', body }), out = wpOutcome(r);
+      if (r.status === 401 || r.status === 402 || r.status === 403) console.error('[woodpay] account problem', r.status, JSON.stringify(r.d).slice(0, 300));
+      if (out === 'success') {
+        const l = await settle(uid, ref, 'success', r.d);
+        return J({ ok: true, status: 'success', balance: bal - charge, charge, title, token: l?.token || null, units: l?.units || null, pins: l?.pins || null });
+      }
+      if (out === 'failed') {
+        console.error('[woodpay] order failed', ref, r.status, JSON.stringify(r.d).slice(0, 300));
+        await settle(uid, ref, 'failed', {}, r.d.reason || r.d.error);
+        const friendly = r.status === 400 && r.d.error ? r.d.error : 'We could not complete this order. You have not been charged.';
+        return J({ ok: false, status: 'failed', error: friendly, balance: bal }, 200);
+      }
+      return J({ ok: true, status: 'pending', balance: bal - charge, charge, title });
     }
     if (p === 'chat' && m === 'POST') {
       const uid = clip(b.uid, 120).toLowerCase(), key = req.headers.get('x-nf-client-connection-ip') || uid, now = Date.now();
@@ -286,7 +418,7 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
       const [users, subs, txs, bcs, pays] = await Promise.all([all('users'), all('subs'), all('txs'), all('bcs'), all('pay')]);
       const paid = pays.filter(x => x.status === 'success');
       const series = [...Array(7)].map((_, i) => { const d = new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10); const t = txs.filter(x => new Date(x.ts).toISOString().slice(0, 10) === d); return { d, sales: t.reduce((s, x) => s + x.amount, 0), count: t.length }; });
-      return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.reduce((s, x) => s + x.amount, 0), funded: paid.reduce((s, x) => s + x.amount, 0), fundCount: paid.length, series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, paystack: !!E.PAYSTACK_SECRET_KEY, chat: !!E.ANTHROPIC_API_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
+      return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.filter(x => x.status !== 'failed' && !x.refunded).reduce((s, x) => s + x.amount, 0), funded: paid.reduce((s, x) => s + x.amount, 0), fundCount: paid.length, series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, woodpay: !!E.WOODPAY_API_KEY, paystack: !!E.PAYSTACK_SECRET_KEY, chat: !!E.ANTHROPIC_API_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
     }
     if (route === 'users' && m === 'GET') return J({ items: (await all('users')).sort((a, c) => c.joined - a.joined).map(({ pin, pinFails, pinLock, ...x }) => ({ ...x, hasPin: !!pin })) });
     if (route === 'users' && m === 'DELETE') { const id = clip(u.searchParams.get('id'), 120); await getStore('users').delete(hash(id)); return J({ ok: true }); }
@@ -307,9 +439,14 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
     if (route === 'broadcasts' && m === 'DELETE') { await getStore('bcs').delete(clip(u.searchParams.get('id'), 60)); return J({ ok: true }); }
     if (route === 'pricing' && m === 'GET') return J(await getPricing());
     if (route === 'pricing' && m === 'POST') {
-      const cl = a => (Array.isArray(a) ? a : []).slice(0, 60).map(x => ({ label: clip(x.label, 60).trim(), price: Math.round(Number(x.price)) })).filter(x => x.label && x.price > 0 && x.price <= 1e6);
-      const cfg = { airtimeDiscount: Math.min(30, Math.max(0, Number(b.airtimeDiscount) || 0)), off: Object.fromEntries(['airtime', 'data', 'power', 'tv', 'exam'].map(k => [k, !!b.off?.[k]])), plans: { data: cl(b.plans?.data), tv: cl(b.plans?.tv), exam: cl(b.plans?.exam) } };
+      const n = (v, mx) => Math.min(mx, Math.max(0, Math.round(Number(v) || 0)));
+      const cfg = { airtimeDiscount: Math.min(30, Math.max(0, Number(b.airtimeDiscount) || 0)), markup: { data: n(b.markup?.data, 5000), tv: n(b.markup?.tv, 5000), exam: n(b.markup?.exam, 5000) }, elecFeePct: Math.min(20, Math.max(0, Number(b.elecFeePct) || 0)), off: Object.fromEntries(['airtime', 'data', 'power', 'tv', 'exam'].map(k => [k, !!b.off?.[k]])) };
       await put('config', 'pricing', cfg); return J({ ok: true });
+    }
+    if (route === 'netrates' && m === 'GET') return J({ rates: (await getStore('config').get('netrates', { type: 'json' }).catch(() => null)) || {} });
+    if (route === 'netrates' && m === 'POST') {
+      const out = {}; for (const k of [...NETS, ...TVS, ...EXAMS, 'ikedc', 'ekedc', 'aedc', 'kedco', 'phed', 'ibedc', 'kaedco', 'jed', 'eedc', 'bedc', 'aed', 'yed']) for (const sv of ['airtime', 'data', 'tv', 'power', 'exam']) { const v = b.rates?.[k]?.[sv]; if (v === undefined || v === null || v === '') continue; const x = Number(v); if (isNaN(x) || x < 0 || x > 100) return J({ error: `${k} ${sv}: enter 0–100` }, 400); (out[k] = out[k] || {})[sv] = Math.round(x); }
+      await put('config', 'netrates', out); return J({ ok: true });
     }
     if (route === 'wallet' && m === 'GET') return J(await history(clip(u.searchParams.get('uid'), 120).toLowerCase()));
     if (route === 'wallet' && m === 'POST') {
@@ -337,4 +474,4 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/auth/*', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/auth/*', '/api/wp/*', '/api/network-status', '/api/order-status', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };

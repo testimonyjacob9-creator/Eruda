@@ -9,12 +9,12 @@ const toText = h => String(h).replace(/<(br|\/p|\/h2|\/tr)[^>]*>/gi, '\n').repla
 
 const templates = {
   welcome: d => ({
-    subject: 'Welcome to Erudite Easy Pay',
-    html: wrap(`Welcome, ${esc(d.name || 'there')}!`, `<p>Your account is ready. Fund your wallet and start buying airtime, data, electricity, cable TV and exam pins in seconds.</p><p style="color:#64748b;font-size:13px">If you didn’t create this account, you can ignore this email.</p>`)
+    subject: 'Your Erudite Easy Pay account is ready',
+    html: wrap(`Hi ${esc(d.name || 'there')},`, `<p>Your Erudite Easy Pay account has been created.</p><p>To get started, add money to your wallet from the app, then you can buy airtime, data, electricity, cable TV and exam pins whenever you need them.</p><p style="color:#64748b;font-size:13px">If you did not create this account, just reply to this email and we will look into it.</p>`)
   }),
   receipt: d => ({
-    subject: `Your receipt · ₦${Number(d.amount || 0).toLocaleString('en-NG')}`,
-    html: wrap('Payment successful', `<table style="width:100%;font-size:14px;border-collapse:collapse"><tr><td style="padding:8px 0;color:#64748b">Service</td><td align="right"><b>${esc(d.service)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Recipient</td><td align="right"><b>${esc(d.recipient)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Amount</td><td align="right"><b>₦${Number(d.amount || 0).toLocaleString('en-NG')}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Reference</td><td align="right"><b>${esc(d.ref)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Status</td><td align="right"><b style="color:#16a34a">Successful</b></td></tr></table>`)
+    subject: `Your receipt for ₦${Number(d.amount || 0).toLocaleString('en-NG')} (${String(d.ref || '').slice(0, 20)})`,
+    html: wrap('Your receipt', `<p>Thanks for using Erudite Easy Pay. Here are the details of your purchase.</p><table style="width:100%;font-size:14px;border-collapse:collapse"><tr><td style="padding:8px 0;color:#64748b">Service</td><td align="right"><b>${esc(d.service)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Recipient</td><td align="right"><b>${esc(d.recipient)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Amount</td><td align="right"><b>₦${Number(d.amount || 0).toLocaleString('en-NG')}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Reference</td><td align="right"><b>${esc(d.ref)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Status</td><td align="right"><b style="color:#16a34a">Successful</b></td></tr></table><p style="color:#64748b;font-size:13px">Need help with this order? Reply to this email and quote the reference above.</p>`)
   })
 };
 
