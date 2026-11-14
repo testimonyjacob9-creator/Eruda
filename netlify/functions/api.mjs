@@ -24,7 +24,55 @@ const authed = req => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
-const wrap = (title, body) => `<div style="background:#f4f7ff;padding:24px;font-family:Arial,sans-serif"><div style="max-width:480px;margin:auto;background:#fff;border-radius:16px;overflow:hidden"><div style="background:linear-gradient(135deg,#0a2380,#2f6bff);color:#fff;padding:22px 24px"><b style="letter-spacing:3px;font-size:16px">ERUDITE EASY PAY</b></div><div style="padding:24px;color:#0b1b3f;line-height:1.6"><h2 style="margin:0 0 12px">${esc(title)}</h2>${body}</div><div style="padding:14px 24px;background:#eaf1ff;color:#64748b;font-size:12px">Erudite Easy Pay · Airtime, data and bills, instantly.</div></div></div>`;
+const SITE = (E.SITE_URL || E.URL || 'https://eruditeeasypay.netlify.app').replace(/\/$/, '');
+const wrap = (title, body) => `<div style="background:#f4f7ff;padding:24px;font-family:Arial,sans-serif"><div style="max-width:480px;margin:auto;background:#fff;border-radius:16px;overflow:hidden"><div style="background:#ffffff;padding:18px 24px;border-bottom:3px solid #1d4ed8;text-align:center"><img src="${SITE}/logo-email.png" alt="Erudite Easy Pay" width="180" style="max-width:180px;height:auto;display:inline-block"></div><div style="padding:24px;color:#0b1b3f;line-height:1.6"><h2 style="margin:0 0 12px">${title}</h2>${body}</div><div style="padding:14px 24px;background:#eaf1ff;color:#64748b;font-size:12px">Erudite Easy Pay · Pay Smart. Live Better.<br>You received this email because of activity on your Erudite Easy Pay account.</div></div></div>`;
+const toText = h => String(h).replace(/<(br|\/p|\/h2|\/tr)[^>]*>/gi, '\n').replace(/<a [^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi, '$2: $1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+
+// Brevo transactional send, built for inbox placement: plain-text alternative, reply-to, proper sender
+async function sendMail({ to, subject, html, text }) {
+  if (!E.BREVO_API_KEY || !E.SENDER_EMAIL) return false;
+  try {
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': E.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ sender: { name: E.SENDER_NAME || 'Erudite Easy Pay', email: E.SENDER_EMAIL }, replyTo: { email: E.REPLY_TO || E.SENDER_EMAIL, name: 'Erudite Easy Pay Support' }, to: [{ email: to }], subject, htmlContent: html, textContent: text || toText(html), tags: ['transactional'] })
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+/* ---------- Firebase (web config is public; the service-account key lives ONLY in the FIREBASE_SERVICE_ACCOUNT env var) ---------- */
+const FB_KEY = 'AIzaSyB4_pSASNgkJb-s08K7IhXR-7Plt8-hC9k', FB_PROJECT = 'easy-pay-c6471';
+const b64u = x => Buffer.from(x).toString('base64url');
+let adminTok = { t: '', exp: 0 };
+async function adminToken() {
+  if (adminTok.exp > Date.now() + 60000) return adminTok.t;
+  let sa; try { sa = JSON.parse(E.FIREBASE_SERVICE_ACCOUNT || ''); } catch { return null; }
+  if (!sa.private_key || !sa.client_email) return null;
+  const now = Math.floor(Date.now() / 1000), h = b64u(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const c = b64u(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/cloud-platform', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 }));
+  const sig = crypto.createSign('RSA-SHA256').update(h + '.' + c).sign(sa.private_key, 'base64url');
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + h + '.' + c + '.' + sig });
+  const d = await r.json().catch(() => ({}));
+  if (!d.access_token) return null;
+  adminTok = { t: d.access_token, exp: Date.now() + (d.expires_in || 3600) * 1000 };
+  return adminTok.t;
+}
+// Verify a Firebase ID token with Google, return { email, authTime } or null
+async function verifyIdToken(idToken) {
+  if (typeof idToken !== 'string' || idToken.length > 4000) return null;
+  const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + FB_KEY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken }) });
+  const d = await r.json().catch(() => ({})), u = d.users && d.users[0];
+  if (!u || !u.email) return null;
+  let authTime = 0; try { authTime = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64url').toString()).auth_time * 1000; } catch {}
+  return { email: u.email.toLowerCase(), authTime };
+}
+async function resetLink(email) {
+  const t = await adminToken(); if (!t) return null;
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${FB_PROJECT}/accounts:sendOobCode`, { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ requestType: 'PASSWORD_RESET', email, returnOobLink: true, continueUrl: SITE + '/', canHandleCodeInApp: false }) });
+  const d = await r.json().catch(() => ({}));
+  return d.oobLink || null;
+}
 
 async function sendEmails(list, title, message) {
   if (!E.BREVO_API_KEY || !E.SENDER_EMAIL) return { sent: 0, failed: list.length, error: 'Brevo not configured' };
@@ -36,7 +84,7 @@ async function sendEmails(list, title, message) {
       const r = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'api-key': E.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ sender: { name: E.SENDER_NAME || 'Erudite Easy Pay', email: E.SENDER_EMAIL }, subject: title, htmlContent: html, messageVersions: chunk.map(email => ({ to: [{ email }] })) })
+        body: JSON.stringify({ sender: { name: E.SENDER_NAME || 'Erudite Easy Pay', email: E.SENDER_EMAIL }, replyTo: { email: E.REPLY_TO || E.SENDER_EMAIL }, subject: title, htmlContent: html, textContent: toText(html), messageVersions: chunk.map(email => ({ to: [{ email }] })) })
       });
       r.ok ? (sent += chunk.length) : (failed += chunk.length);
     } catch { failed += chunk.length; }
@@ -109,6 +157,25 @@ export default async req => {
       const id = clip(b.id, 120).toLowerCase(); if (id.length < 5) return J({ error: 'Invalid' }, 400);
       const old = await getStore('users').get(hash(id), { type: 'json' });
       await put('users', hash(id), { ...old, id, name: clip(b.name, 60), email: EMAIL.test(b.email || '') ? clip(b.email, 120).toLowerCase() : '', joined: old?.joined || Date.now(), seen: Date.now(), suspended: !!old?.suspended });
+      return J({ ok: true });
+    }
+    if (p === 'auth/reset-password' && m === 'POST') {
+      // Always answers ok (no account enumeration). Sends through Brevo from your authenticated domain so it lands in the inbox.
+      const em = clip(b.email, 120).toLowerCase(); if (!EMAIL.test(em)) return J({ error: 'Invalid email' }, 400);
+      const link = await resetLink(em).catch(() => null);
+      if (!link) return J({ ok: false, fallback: true });
+      await sendMail({ to: em, subject: 'Reset your Erudite Easy Pay password', html: wrap('Reset your password', `<p>We received a request to reset the password for your account. Tap the button below to choose a new one.</p><p style="margin:22px 0"><a href="${esc(link)}" style="background:#1d4ed8;color:#fff;text-decoration:none;padding:13px 22px;border-radius:12px;font-weight:bold;display:inline-block">Reset password</a></p><p style="color:#64748b;font-size:13px">If you didn’t ask for this, you can safely ignore this email — your password won’t change.</p>`) });
+      return J({ ok: true });
+    }
+    if (p === 'pin/reset' && m === 'POST') {
+      const v = await verifyIdToken(b.idToken);
+      if (!v) return J({ error: 'Please log in again.' }, 401);
+      if (Date.now() - v.authTime > 10 * 60 * 1000) return J({ error: 'Please verify your identity again.' }, 401);
+      const usr = await getStore('users').get(hash(v.email), { type: 'json' });
+      if (!usr) return J({ error: 'Account not found' }, 404);
+      if (!validPin(b.pin)) return J({ error: 'Choose a 4-digit PIN that is not 1234 or repeated digits.' }, 400);
+      const salt = crypto.randomBytes(8).toString('hex');
+      await put('users', hash(v.email), { ...usr, pin: { s: salt, h: pinHash(b.pin, salt) }, pinFails: 0, pinLock: 0 });
       return J({ ok: true });
     }
     if (p === 'push-sub' && m === 'POST') {
@@ -270,4 +337,4 @@ Facts: airtime discount ${P.airtimeDiscount || 0}% off. Data plans: ${P.plans.da
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/history', '/api/pin/*', '/api/auth/*', '/api/chat', '/api/pricing', '/api/paystack/*', '/api/admin/*'] };

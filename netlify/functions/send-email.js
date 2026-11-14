@@ -3,7 +3,9 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const hits = new Map(); // simple per-instance rate limit
 
-const wrap = (title, body) => `<div style="background:#f4f7ff;padding:24px;font-family:Arial,sans-serif"><div style="max-width:480px;margin:auto;background:#fff;border-radius:16px;overflow:hidden"><div style="background:linear-gradient(135deg,#0a2380,#2f6bff);color:#fff;padding:22px 24px"><b style="letter-spacing:3px;font-size:16px">ERUDITE EASY PAY</b></div><div style="padding:24px;color:#0b1b3f;line-height:1.6"><h2 style="margin:0 0 12px">${title}</h2>${body}</div><div style="padding:14px 24px;background:#eaf1ff;color:#64748b;font-size:12px">Erudite Easy Pay · Airtime, data and bills, instantly.</div></div></div>`;
+const SITE = (process.env.SITE_URL || process.env.URL || 'https://eruditeeasypay.netlify.app').replace(/\/$/, '');
+const wrap = (title, body) => `<div style="background:#f4f7ff;padding:24px;font-family:Arial,sans-serif"><div style="max-width:480px;margin:auto;background:#fff;border-radius:16px;overflow:hidden"><div style="background:#ffffff;padding:18px 24px;border-bottom:3px solid #1d4ed8;text-align:center"><img src="${SITE}/logo-email.png" alt="Erudite Easy Pay" width="180" style="max-width:180px;height:auto;display:inline-block"></div><div style="padding:24px;color:#0b1b3f;line-height:1.6"><h2 style="margin:0 0 12px">${title}</h2>${body}</div><div style="padding:14px 24px;background:#eaf1ff;color:#64748b;font-size:12px">Erudite Easy Pay · Pay Smart. Live Better.<br>You received this email because of activity on your Erudite Easy Pay account.</div></div></div>`;
+const toText = h => String(h).replace(/<(br|\/p|\/h2|\/tr)[^>]*>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
 
 const templates = {
   welcome: d => ({
@@ -11,7 +13,7 @@ const templates = {
     html: wrap(`Welcome, ${esc(d.name || 'there')}!`, `<p>Your account is ready. Fund your wallet and start buying airtime, data, electricity, cable TV and exam pins in seconds.</p><p style="color:#64748b;font-size:13px">If you didn’t create this account, you can ignore this email.</p>`)
   }),
   receipt: d => ({
-    subject: `Payment successful · ₦${Number(d.amount || 0).toLocaleString('en-NG')}`,
+    subject: `Your receipt · ₦${Number(d.amount || 0).toLocaleString('en-NG')}`,
     html: wrap('Payment successful', `<table style="width:100%;font-size:14px;border-collapse:collapse"><tr><td style="padding:8px 0;color:#64748b">Service</td><td align="right"><b>${esc(d.service)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Recipient</td><td align="right"><b>${esc(d.recipient)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Amount</td><td align="right"><b>₦${Number(d.amount || 0).toLocaleString('en-NG')}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Reference</td><td align="right"><b>${esc(d.ref)}</b></td></tr><tr><td style="padding:8px 0;color:#64748b">Status</td><td align="right"><b style="color:#16a34a">Successful</b></td></tr></table>`)
   })
 };
@@ -40,7 +42,7 @@ exports.handler = async event => {
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ sender: { name: SENDER_NAME || 'Erudite Easy Pay', email: SENDER_EMAIL }, to: [{ email: b.to }], subject: t.subject, htmlContent: t.html })
+      body: JSON.stringify({ sender: { name: SENDER_NAME || 'Erudite Easy Pay', email: SENDER_EMAIL }, replyTo: { email: process.env.REPLY_TO || SENDER_EMAIL }, to: [{ email: b.to }], subject: t.subject, htmlContent: t.html, textContent: toText(t.html), tags: ['transactional'] })
     });
     if (!r.ok) return reply(502, { error: 'Brevo rejected the request', status: r.status });
     return reply(200, { ok: true });

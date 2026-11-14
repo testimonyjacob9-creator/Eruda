@@ -39,3 +39,19 @@ Users create a 4-digit PIN at sign-up (or on their first purchase if they signed
 
 ## Smart assistant
 Chat button in the app (bottom-right). Powered by Claude through `/api/chat` using `ANTHROPIC_API_KEY` (optional `CHAT_MODEL`). It knows your live prices, service status and the user's balance, can't move money, and hands off to WhatsApp (`SUPPORT_WHATSAPP`) when it can't help. Without the key it falls back to a basic FAQ.
+
+## Firebase Auth (email/password + Google)
+The Firebase **web** config is hardcoded in `index.html` (it is public by design). Enable *Email/Password* and *Google* under Firebase → Authentication → Sign-in method, and add your site domain under Authentication → Settings → Authorized domains.
+- **Forgot password**: `/api/auth/reset-password` generates the reset link with the Firebase Admin API and sends it through Brevo from your own domain (better inbox placement than Firebase's default sender). Falls back to Firebase's built-in email if the service account isn't set.
+- **Forgot PIN**: user re-verifies with their password (or Google), then `/api/pin/reset` validates the Firebase ID token server-side (must be < 10 min old) and sets a new PIN.
+- Netlify env var `FIREBASE_SERVICE_ACCOUNT`: paste the **entire service-account JSON**. Never commit this file or put it in client code.
+- Optional env vars: `SITE_URL` (used for email logo/links), `REPLY_TO`.
+
+## Email deliverability checklist
+Code already sends a plain-text part, reply-to, and clean templates. The rest is DNS (do this in your domain registrar + Brevo → Senders, Domains):
+1. Send from an address **on your own domain** (not gmail/yahoo) and authenticate the domain in Brevo.
+2. Add Brevo's **DKIM** and **SPF** records, plus a **DMARC** record (`v=DMARC1; p=none; rua=mailto:you@yourdomain`).
+3. Warm up gradually; avoid ALL-CAPS/“free”/“!!!” in broadcast subjects.
+
+## Branding
+`logo.jpg` (source), `og-image.jpg` (1200×630 link preview for WhatsApp etc.), `icon-192/512.png`, `apple-touch-icon.png`, `favicon.png`, `logo-email.png`. If your live URL differs from `https://eruditeeasypay.netlify.app`, search/replace it in `index.html` (OG tags, canonical).
