@@ -149,6 +149,9 @@ const api=(p,o)=>fetch('/api/'+p,o).then(r=>r.json()).catch(()=>null);
 const seen=()=>{try{return +localStorage.getItem('eep_seen')||0}catch(e){return 0}};
 const unread=()=>inbox.filter(x=>x.ts>seen()).length;
 async function loadInbox(){const r=await api('inbox');if(r&&r.items){const n=r.items.length;inbox=r.items;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
+async function loadWallet(){const r=await api('wallet?uid='+encodeURIComponent(user.id));if(r&&typeof r.balance=='number'){bal=r.balance;if(tab=='home'&&!document.querySelector('.ov')&&!$('#app').classList.contains('hide'))render()}}
+(()=>{const q=new URLSearchParams(location.search),ref=q.get('reference')||q.get('trxref');if(!ref)return;history.replaceState(null,'','/');
+api('paystack/verify?reference='+encodeURIComponent(ref)).then(r=>{toast(r&&r.ok?`Payment received: ${N(r.amount)}${user.id?'':'. Log in to see your balance'}`:'We could not confirm the payment yet');if(user.id)loadWallet()})})();
 setInterval(()=>{if(user.id)loadInbox()},60000);
 const u8=k=>{const b=atob((k+'='.repeat((4-k.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
 async function enablePush(){try{if(!('serviceWorker' in navigator)||!('PushManager' in window))return toast('Push is not supported on this browser');
@@ -160,10 +163,7 @@ const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const o=pop(`<h3>Messages</h3>${inbox.map(x=>`<div class="tx" style="margin:0 0 10px;align-items:flex-start"><i>${ic('bell')}</i><div><b>${esc(x.title)}</b><small style="display:block;white-space:pre-wrap;margin-top:2px">${esc(x.message)}</small><small>${new Date(x.ts).toLocaleDateString('en-NG',{day:'numeric',month:'short'})}</small></div></div>`).join('')||'<p style="color:var(--mut);font-size:13px;margin-bottom:14px">No messages yet.</p>'}<button class="btn" id="ep" style="margin-top:6px">Turn on push notifications</button>`);
 o.querySelector('#ep').onclick=enablePush;render()}
 const $=s=>document.querySelector(s),N=n=>'₦'+n.toLocaleString('en-NG');
-let mode='login',user={name:'Testimony'},bal=25400,tab='home',tx=[
-{t:'MTN Airtime',s:'0803 *** 4421',a:-500,d:'Today, 9:41 AM',i:'airtime'},
-{t:'Wallet funding',s:'Bank transfer',a:5000,d:'Yesterday',i:'fund'},
-{t:'Airtel 2GB Data',s:'0902 *** 1180',a:-600,d:'Mon, 6:12 PM',i:'data'}];
+let mode='login',user={name:'Testimony'},bal=0,tab='home',tx=[];
 const NET=['MTN','Airtel','Glo','9mobile'];
 const SV={
 airtime:{t:'Buy Airtime',f:[['net','Network',NET],['ph','Phone number','0801 234 5678'],['amt','Amount (₦)','Enter amount',[100,200,500,1000]]]},
@@ -184,9 +184,9 @@ if(id.length<5)return $('#err').textContent='Enter a valid phone number or email
 if(pw.length<6)return $('#err').textContent='Password must be at least 6 characters.';
 if(mode=='signup'){const em=$('#em').value.trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))return $('#err').textContent='Enter a valid email address.';user.name=$('#name').value.trim().split(' ')[0];user.email=em}
 else if(id.includes('@'))user.email=id;
-$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();user.id=(user.email||id).toLowerCase();if(mode=='signup')mail('welcome',{name:user.name});api('register',{method:'POST',headers:H,body:JSON.stringify({id:user.id,name:user.name,email:user.email||''})});loadInbox()},700)};
+$('#go').textContent='Please wait…';setTimeout(()=>{$('#auth').classList.add('hide');$('#app').classList.remove('hide');render();user.id=(user.email||id).toLowerCase();if(mode=='signup')mail('welcome',{name:user.name});api('register',{method:'POST',headers:H,body:JSON.stringify({id:user.id,name:user.name,email:user.email||''})});loadInbox();loadWallet()},700)};
 /* render */
-const txH=a=>a.map(x=>`<div class="tx"><i>${ic(x.i)}</i><div><b>${x.t}</b><small>${x.s} · ${x.d}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
+const txH=a=>!a.length?'<p style="margin:0 16px;color:var(--mut);font-size:13px">No transactions yet</p>':a.map(x=>`<div class="tx"><i>${ic(x.i)}</i><div><b>${x.t}</b><small>${x.s} · ${x.d}</small></div><em style="color:${x.a>0?'var(--ok)':'var(--tx)'}">${x.a>0?'+':'−'}${N(Math.abs(x.a))}</em></div>`).join('');
 function render(){
 const v=$('#v');
 if(tab=='home')v.innerHTML=`<div class="top"><div class="who"><div class="av">${user.name[0].toUpperCase()}</div><div><small>Good day 👋</small><b>${user.name}</b></div></div><div style="display:flex;gap:8px"><button class="ib" id="th">${ic('moon',20)}</button><button class="ib" id="bl" style="position:relative">${ic('bell',20)}${unread()?`<b style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center">${unread()}</b>`:''}</button></div></div>
@@ -211,8 +211,12 @@ if(e.target.closest('#lo')){$('#app').classList.add('hide');$('#auth').classList
 function pop(h){let o=$('.ov');if(!o){o=document.createElement('div');o.className='ov';o.onclick=e=>{if(e.target==o)o.remove()};document.body.appendChild(o)}o.innerHTML=`<div class="pop"><div class="grab"></div>${h}</div>`;return o}
 const toast=m=>{const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),1800)};
 function openS(k){
-if(k=='fund'){const o=pop(`<h3>Fund wallet</h3><div class="acct"><small>Erudite Easy Pay · Virtual account</small><h4>9012 345 678</h4><small>Account name: ${user.name} / EEP</small></div><p style="font-size:13px;color:var(--mut);margin-bottom:16px">Transfer any amount to this account. Your wallet is credited instantly, 24/7.</p><button class="btn" id="cp">Copy account number</button>`);
-o.querySelector('#cp').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText('9012345678').catch(()=>{});toast('Account number copied')};return}
+if(k=='fund'){const o=pop(`<h3>Fund wallet</h3><div class="fld"><label>Amount (₦)</label><div class="inp"><input id="fa" inputmode="numeric" placeholder="Minimum ₦100"></div><div class="chips" style="margin-top:8px">${[500,1000,2000,5000].map(x=>`<button class="chip" data-q="${x}">${N(x)}</button>`).join('')}</div></div><div class="err" id="e2"></div><button class="btn" id="pp">Pay with Paystack</button><p style="font-size:12px;color:var(--mut);margin-top:12px;text-align:center">Secured by Paystack · Card, bank transfer, USSD</p>`);
+o.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>o.querySelector('#fa').value=b.dataset.q);
+o.querySelector('#pp').onclick=async()=>{const a=+o.querySelector('#fa').value,E=m=>o.querySelector('#e2').textContent=m;if(!(a>=100))return E('Enter at least ₦100.');
+o.querySelector('#pp').disabled=true;o.querySelector('#pp').textContent='Please wait…';
+const r=await api('paystack/init',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,email:user.email||'',amount:a})});
+if(r&&r.url){location.href=r.url}else{E(r&&r.error||'Could not start payment. Try again.');o.querySelector('#pp').disabled=false;o.querySelector('#pp').textContent='Pay with Paystack'}};return}
 const c=SV[k],sel={};
 const o=pop(`<h3>${c.t}</h3>${c.f.map(f=>{
 if(Array.isArray(f[2]))return `<div class="fld"><label>${f[1]}</label><div class="chips" data-k="${f[0]}">${f[2].map((x,i)=>Array.isArray(x)?`<button class="chip" data-i="${i}">${x[0]}<small>${N(x[1])}</small></button>`:`<button class="chip" data-i="${i}">${x}</button>`).join('')}</div></div>`;
@@ -228,7 +232,10 @@ let a,pl='';if(pf){if(sel.plan==null)return E('Please choose a package.');a=pf[2
 if(a>bal)return E('Insufficient balance. Please fund your wallet.');
 const net=nf[2][sel.net],who=ph?ph.value:'—';
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div style="text-align:center;padding:30px 0"><div class="chip on" style="display:inline-block">Processing…</div></div>`;
-setTimeout(()=>{bal-=a;tx.unshift({t:`${net} ${pl||c.t.replace('Buy ','')}`,s:who,a:-a,d:'Just now',i:k});render();const rf='EEP'+Date.now().toString(36).toUpperCase(),sv=`${net} ${pl||c.t.replace('Buy ','')}`;api('track',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,service:sv,recipient:who,amount:a,ref:rf})});mail('receipt',{service:`${net} ${pl||c.t.replace('Buy ','')}`,recipient:who,amount:a,ref:rf});
+setTimeout(async()=>{const rf='EEP'+Date.now().toString(36).toUpperCase(),sv=`${net} ${pl||c.t.replace('Buy ','')}`;
+const r=await api('track',{method:'POST',headers:H,body:JSON.stringify({uid:user.id,service:sv,recipient:who,amount:a,ref:rf})});
+if(!r||!r.ok){if(r&&typeof r.balance=='number')bal=r.balance;o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><h3>Payment failed</h3><p style="color:var(--mut);font-size:13px;margin:8px 0 16px">${r&&r.error?r.error:'Please try again.'}</p><button class="btn" id="dn">Close</button></div>`;o.querySelector('#dn').onclick=()=>{o.remove();render()};return}
+bal=r.balance;tx.unshift({t:sv,s:who,a:-a,d:'Just now',i:k});render();mail('receipt',{service:sv,recipient:who,amount:a,ref:rf});
 o.querySelector('.pop').innerHTML=`<div class="grab"></div><div class="ok"><div class="c">${ic('chk')}</div><h3 style="margin:0">Payment successful</h3><p style="color:var(--mut);font-size:13px;margin-top:6px">Your transaction was completed instantly.</p>
 <div class="rc"><p><span>Service</span><b>${net} ${pl||c.t.replace('Buy ','')}</b></p><p><span>Recipient</span><b>${who}</b></p><p><span>Amount</span><b>${N(a)}</b></p><p><span>Status</span><b style="color:var(--ok)">Successful</b></p></div><button class="btn" id="dn">Done</button></div>`;
 o.querySelector('#dn').onclick=()=>o.remove()},1100)}}

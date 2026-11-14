@@ -24,3 +24,6 @@ Open `/admin` on your site and sign in with `ADMIN_PASSWORD`. Dashboard, users, 
 
 ## Web push (VAPID)
 The public key is hardcoded in `index.html` and `netlify/functions/api.mjs`. Add the matching private key as `VAPID_PRIVATE_KEY` in Netlify. Never commit the private key.
+
+## Paystack (wallet funding)
+Add `PAYSTACK_SECRET_KEY` in Netlify. In Paystack → Settings → API Keys & Webhooks, set the webhook URL to `https://YOUR-SITE/api/paystack/webhook`. Users pay via Paystack, the server verifies the payment and credits the wallet (also credited by webhook if the user closes the page).

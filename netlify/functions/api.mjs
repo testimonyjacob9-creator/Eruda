@@ -56,10 +56,26 @@ async function sendPush(subs, title, message) {
   return { sent, failed };
 }
 
+const PS = 'https://api.paystack.co';
+const ps = (path, o = {}) => fetch(PS + path, { ...o, headers: { Authorization: 'Bearer ' + E.PAYSTACK_SECRET_KEY, 'Content-Type': 'application/json' } }).then(r => r.json());
+// wallet = sum of ledger entries (one key per entry, so crediting twice is harmless)
+const balanceOf = async uid => { const s = getStore('ledger'); const { blobs } = await s.list({ prefix: hash(uid) + '/' }); const v = await Promise.all(blobs.map(x => s.get(x.key, { type: 'json' }))); return v.reduce((t, x) => t + (x?.amount || 0), 0); };
+async function credit(ref) {
+  const rec = await getStore('pay').get(hash(ref), { type: 'json' });
+  if (!rec) return { ok: false, error: 'Unknown reference' };
+  if (rec.status === 'success') return { ok: true, amount: rec.amount };
+  const d = (await ps('/transaction/verify/' + encodeURIComponent(ref)))?.data;
+  if (d?.status !== 'success') return { ok: false, status: d?.status || 'pending' };
+  if (d.currency !== 'NGN' || d.amount !== rec.amount * 100) return { ok: false, error: 'Amount mismatch' };
+  await put('ledger', hash(rec.uid) + '/' + ref, { amount: rec.amount, type: 'fund', ts: Date.now() });
+  await put('pay', hash(ref), { ...rec, status: 'success', paidAt: Date.now() });
+  return { ok: true, amount: rec.amount };
+}
+
 export default async req => {
   const u = new URL(req.url), p = u.pathname.replace(/^\/api\//, ''), m = req.method;
-  let b = {};
-  if (m === 'POST') { try { const t = await req.text(); if (t.length > 20000) return J({ error: 'Too large' }, 413); b = t ? JSON.parse(t) : {}; } catch { return J({ error: 'Bad JSON' }, 400); } }
+  let b = {}, raw = '';
+  if (m === 'POST') { try { const t = await req.text(); raw = t; if (t.length > 20000) return J({ error: 'Too large' }, 413); b = t ? JSON.parse(t) : {}; } catch { return J({ error: 'Bad JSON' }, 400); } }
   try {
     /* ---------- public (app) ---------- */
     if (p === 'register' && m === 'POST') {
@@ -74,8 +90,37 @@ export default async req => {
       return J({ ok: true });
     }
     if (p === 'track' && m === 'POST') {
-      const a = Number(b.amount); if (!a || a < 0 || a > 1e7) return J({ error: 'Invalid' }, 400);
-      await put('txs', hash(b.ref || Math.random()), { uid: clip(b.uid, 120), service: clip(b.service, 80), recipient: clip(b.recipient, 40), amount: a, ref: clip(b.ref, 30), ts: Date.now() });
+      const a = Number(b.amount), uid = clip(b.uid, 120).toLowerCase(), ref = clip(b.ref, 30).replace(/[^A-Za-z0-9]/g, '');
+      if (!a || a < 0 || a > 1e7 || uid.length < 5 || !ref) return J({ error: 'Invalid' }, 400);
+      const bal = await balanceOf(uid);
+      if (a > bal) return J({ error: 'Insufficient balance. Please fund your wallet.', balance: bal }, 402);
+      await put('ledger', hash(uid) + '/' + ref, { amount: -a, type: 'purchase', ts: Date.now() });
+      await put('txs', hash(ref), { uid, service: clip(b.service, 80), recipient: clip(b.recipient, 40), amount: a, ref, ts: Date.now() });
+      return J({ ok: true, balance: bal - a });
+    }
+    if (p === 'wallet' && m === 'GET') {
+      const uid = clip(u.searchParams.get('uid'), 120).toLowerCase(); if (uid.length < 5) return J({ error: 'Invalid' }, 400);
+      return J({ balance: await balanceOf(uid) });
+    }
+    if (p === 'paystack/init' && m === 'POST') {
+      if (!E.PAYSTACK_SECRET_KEY) return J({ error: 'Payments are not configured yet' }, 500);
+      const uid = clip(b.uid, 120).toLowerCase(), amount = Math.floor(Number(b.amount));
+      if (uid.length < 5 || !(amount >= 100 && amount <= 500000)) return J({ error: 'Enter an amount between ₦100 and ₦500,000' }, 400);
+      const email = EMAIL.test(b.email || '') ? b.email : uid.replace(/[^a-z0-9]/g, '') + '@erudite.app';
+      const ref = 'EEP' + crypto.randomBytes(8).toString('hex').toUpperCase();
+      const r = await ps('/transaction/initialize', { method: 'POST', body: JSON.stringify({ email, amount: amount * 100, reference: ref, currency: 'NGN', callback_url: u.origin + '/', metadata: { uid } }) });
+      if (!r?.status) return J({ error: r?.message || 'Could not start payment' }, 502);
+      await put('pay', hash(ref), { ref, uid, amount, status: 'pending', ts: Date.now() });
+      return J({ url: r.data.authorization_url, reference: ref });
+    }
+    if (p === 'paystack/verify' && m === 'GET') {
+      if (!E.PAYSTACK_SECRET_KEY) return J({ ok: false, error: 'Payments are not configured' }, 500);
+      return J(await credit(clip(u.searchParams.get('reference'), 60)));
+    }
+    if (p === 'paystack/webhook' && m === 'POST') {
+      const sig = crypto.createHmac('sha512', E.PAYSTACK_SECRET_KEY || '').update(raw).digest('hex');
+      if (!E.PAYSTACK_SECRET_KEY || sig !== req.headers.get('x-paystack-signature')) return J({ error: 'Invalid signature' }, 401);
+      if (b.event === 'charge.success' && b.data?.reference) await credit(b.data.reference);
       return J({ ok: true });
     }
     if (p === 'inbox' && m === 'GET') {
@@ -96,9 +141,10 @@ export default async req => {
     const route = p.slice(6);
 
     if (route === 'stats') {
-      const [users, subs, txs, bcs] = await Promise.all([all('users'), all('subs'), all('txs'), all('bcs')]);
+      const [users, subs, txs, bcs, pays] = await Promise.all([all('users'), all('subs'), all('txs'), all('bcs'), all('pay')]);
+      const paid = pays.filter(x => x.status === 'success');
       const series = [...Array(7)].map((_, i) => { const d = new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10); const t = txs.filter(x => new Date(x.ts).toISOString().slice(0, 10) === d); return { d, sales: t.reduce((s, x) => s + x.amount, 0), count: t.length }; });
-      return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.reduce((s, x) => s + x.amount, 0), series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
+      return J({ users: users.length, withEmail: users.filter(x => x.email).length, subs: subs.length, txCount: txs.length, revenue: txs.reduce((s, x) => s + x.amount, 0), funded: paid.reduce((s, x) => s + x.amount, 0), fundCount: paid.length, series, recentTx: txs.sort((a, c) => c.ts - a.ts).slice(0, 6), recentBc: bcs.sort((a, c) => c.ts - a.ts).slice(0, 5), status: { brevo: !!(E.BREVO_API_KEY && E.SENDER_EMAIL), vapid: !!E.VAPID_PRIVATE_KEY, paystack: !!E.PAYSTACK_SECRET_KEY, admin: !!E.ADMIN_PASSWORD, sender: E.SENDER_EMAIL || '' }, vapidPublic: VAPID_PUBLIC });
     }
     if (route === 'users' && m === 'GET') return J({ items: (await all('users')).sort((a, c) => c.joined - a.joined) });
     if (route === 'users' && m === 'DELETE') { const id = clip(u.searchParams.get('id'), 120); await getStore('users').delete(hash(id)); return J({ ok: true }); }
@@ -121,4 +167,4 @@ export default async req => {
   } catch (e) { return J({ error: 'Server error' }, 500); }
 };
 
-export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/admin/*'] };
+export const config = { path: ['/api/register', '/api/push-sub', '/api/track', '/api/inbox', '/api/wallet', '/api/paystack/*', '/api/admin/*'] };
